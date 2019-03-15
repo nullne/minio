@@ -36,8 +36,20 @@ var (
 	)
 )
 
+var (
+	httpRequestsDetailDuration = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "minio_http_requests_detail_duration_seconds",
+			Help:    "Time taken by requests served by current Minio server instance",
+			Buckets: []float64{.001, .003, .005, 0.02, .1, .5, 1},
+		},
+		[]string{"request_type", "step"},
+	)
+)
+
 func init() {
 	prometheus.MustRegister(httpRequestsDuration)
+	prometheus.MustRegister(httpRequestsDetailDuration)
 	prometheus.MustRegister(newMinioCollector())
 }
 

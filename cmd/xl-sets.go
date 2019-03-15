@@ -32,6 +32,7 @@ import (
 	"github.com/minio/minio/pkg/madmin"
 	"github.com/minio/minio/pkg/policy"
 	"github.com/minio/minio/pkg/sync/errgroup"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 // setsStorageAPI is encapsulated type for Close()
@@ -593,16 +594,25 @@ func (s *xlSets) ListBuckets(ctx context.Context) (buckets []BucketInfo, err err
 
 // GetObjectNInfo - returns object info and locked object ReadCloser
 func (s *xlSets) GetObjectNInfo(ctx context.Context, bucket, object string, rs *HTTPRangeSpec, h http.Header, lockType LockType, opts ObjectOptions) (gr *GetObjectReader, err error) {
+	defer func(before time.Time) {
+		httpRequestsDetailDuration.With(prometheus.Labels{"request_type": "GET", "step": "1"}).Observe(time.Since(before).Seconds())
+	}(time.Now())
 	return s.getHashedSet(object).GetObjectNInfo(ctx, bucket, object, rs, h, lockType, opts)
 }
 
 // GetObject - reads an object from the hashedSet based on the object name.
 func (s *xlSets) GetObject(ctx context.Context, bucket, object string, startOffset int64, length int64, writer io.Writer, etag string, opts ObjectOptions) error {
+	defer func(before time.Time) {
+		httpRequestsDetailDuration.With(prometheus.Labels{"request_type": "GET", "step": "1"}).Observe(time.Since(before).Seconds())
+	}(time.Now())
 	return s.getHashedSet(object).GetObject(ctx, bucket, object, startOffset, length, writer, etag, opts)
 }
 
 // PutObject - writes an object to hashedSet based on the object name.
 func (s *xlSets) PutObject(ctx context.Context, bucket string, object string, data *PutObjReader, opts ObjectOptions) (objInfo ObjectInfo, err error) {
+	defer func(before time.Time) {
+		httpRequestsDetailDuration.With(prometheus.Labels{"request_type": "PUT", "step": "1"}).Observe(time.Since(before).Seconds())
+	}(time.Now())
 	return s.getHashedSet(object).PutObject(ctx, bucket, object, data, opts)
 }
 
