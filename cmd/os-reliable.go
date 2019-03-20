@@ -20,6 +20,9 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 // Wrapper functions to os.RemoveAll, which calls reliableRemoveAll
@@ -73,6 +76,9 @@ func reliableRemoveAll(dirPath string) (err error) {
 // this is to ensure that if there is a racy parent directory
 // delete in between we can simply retry the operation.
 func mkdirAll(dirPath string, mode os.FileMode) (err error) {
+	defer func(before time.Time) {
+		diskOperationDuration.With(prometheus.Labels{"operation_type": "mkdirAll"}).Observe(time.Since(before).Seconds())
+	}(time.Now())
 	if dirPath == "" {
 		return errInvalidArgument
 	}

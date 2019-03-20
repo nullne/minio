@@ -168,6 +168,7 @@ func (xl xlObjects) GetObjectNInfo(ctx context.Context, bucket, object string, r
 		}
 	}
 	httpRequestsDetailDuration.With(prometheus.Labels{"request_type": "GET", "step": "2"}).Observe(time.Since(before).Seconds())
+	before = time.Now()
 
 	if err = checkGetObjArgs(ctx, bucket, object); err != nil {
 		nsUnlocker()
@@ -651,9 +652,9 @@ func (xl xlObjects) putObject(ctx context.Context, bucket string, object string,
 	// -- FIXME (this also causes performance issue when disks are down).
 	httpRequestsDetailDuration.With(prometheus.Labels{"request_type": "PUT", "step": "7"}).Observe(time.Since(before).Seconds())
 	before = time.Now()
-	if xl.parentDirIsObject(ctx, bucket, path.Dir(object)) {
-		return ObjectInfo{}, toObjectErr(errFileAccessDenied, bucket, object)
-	}
+	// if xl.parentDirIsObject(ctx, bucket, path.Dir(object)) {
+	// 	return ObjectInfo{}, toObjectErr(errFileAccessDenied, bucket, object)
+	// }
 	httpRequestsDetailDuration.With(prometheus.Labels{"request_type": "PUT", "step": "8"}).Observe(time.Since(before).Seconds())
 	before = time.Now()
 

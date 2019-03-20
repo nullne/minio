@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/minio/minio/cmd/logger"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 const erasureAlgorithmKlauspost = "klauspost/reedsolomon/vandermonde"
@@ -424,6 +425,7 @@ func deleteXLMetdata(ctx context.Context, disk StorageAPI, bucket, prefix string
 
 // writeXLMetadata - writes `xl.json` to a single disk.
 func writeXLMetadata(ctx context.Context, disk StorageAPI, bucket, prefix string, xlMeta xlMetaV1) error {
+	before := time.Now()
 	jsonFile := path.Join(prefix, xlMetaJSONFile)
 
 	// Marshal json.
@@ -432,10 +434,13 @@ func writeXLMetadata(ctx context.Context, disk StorageAPI, bucket, prefix string
 		logger.LogIf(ctx, err)
 		return err
 	}
+	httpRequestsDetailDuration.With(prometheus.Labels{"request_type": "PUT", "step": "14"}).Observe(time.Since(before).Seconds())
+	before = time.Now()
 
 	// Persist marshaled data.
 	err = disk.WriteAll(bucket, jsonFile, metadataBytes)
 	logger.LogIf(ctx, err)
+	httpRequestsDetailDuration.With(prometheus.Labels{"request_type": "PUT", "step": "15"}).Observe(time.Since(before).Seconds())
 	return err
 }
 

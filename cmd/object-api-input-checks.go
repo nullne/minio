@@ -188,9 +188,9 @@ func checkPutObjectArgs(ctx context.Context, bucket, object string, obj ObjectLa
 	// important here bucket does not exist error should
 	// happen before we return an error for invalid object name.
 	// FIXME: should be moved to handler layer.
-	if err := checkBucketExist(ctx, bucket, obj); err != nil {
-		return err
-	}
+	// if err := checkBucketExist(ctx, bucket, obj); err != nil {
+	// 	return err
+	// }
 
 	if len(object) == 0 ||
 		hasPrefix(object, slashSeparator) ||

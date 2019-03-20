@@ -37,6 +37,7 @@ import (
 	"github.com/minio/minio/cmd/logger"
 	"github.com/minio/minio/pkg/disk"
 	"github.com/minio/minio/pkg/mountinfo"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 const (
@@ -460,6 +461,9 @@ func (s *posix) diskUsage(doneCh chan struct{}) {
 
 // Make a volume entry.
 func (s *posix) MakeVol(volume string) (err error) {
+	defer func(before time.Time) {
+		diskOperationDuration.With(prometheus.Labels{"operation_type": "MakeVol"}).Observe(time.Since(before).Seconds())
+	}(time.Now())
 	defer func() {
 		if err == errFaultyDisk {
 			atomic.AddInt32(&s.ioErrCount, 1)
@@ -503,6 +507,9 @@ func (s *posix) MakeVol(volume string) (err error) {
 
 // ListVols - list volumes.
 func (s *posix) ListVols() (volsInfo []VolInfo, err error) {
+	defer func(before time.Time) {
+		diskOperationDuration.With(prometheus.Labels{"operation_type": "ListVols"}).Observe(time.Since(before).Seconds())
+	}(time.Now())
 	defer func() {
 		if err == errFaultyDisk {
 			atomic.AddInt32(&s.ioErrCount, 1)
@@ -572,6 +579,9 @@ func listVols(dirPath string) ([]VolInfo, error) {
 
 // StatVol - get volume info.
 func (s *posix) StatVol(volume string) (volInfo VolInfo, err error) {
+	defer func(before time.Time) {
+		diskOperationDuration.With(prometheus.Labels{"operation_type": "StatVol"}).Observe(time.Since(before).Seconds())
+	}(time.Now())
 	defer func() {
 		if err == errFaultyDisk {
 			atomic.AddInt32(&s.ioErrCount, 1)
@@ -613,6 +623,9 @@ func (s *posix) StatVol(volume string) (volInfo VolInfo, err error) {
 
 // DeleteVol - delete a volume.
 func (s *posix) DeleteVol(volume string) (err error) {
+	defer func(before time.Time) {
+		diskOperationDuration.With(prometheus.Labels{"operation_type": "DeleteVol"}).Observe(time.Since(before).Seconds())
+	}(time.Now())
 	defer func() {
 		if err == errFaultyDisk {
 			atomic.AddInt32(&s.ioErrCount, 1)
@@ -653,6 +666,9 @@ func (s *posix) DeleteVol(volume string) (err error) {
 // ListDir - return all the entries at the given directory path.
 // If an entry is a directory it will be returned with a trailing "/".
 func (s *posix) ListDir(volume, dirPath string, count int) (entries []string, err error) {
+	defer func(before time.Time) {
+		diskOperationDuration.With(prometheus.Labels{"operation_type": "ListDir"}).Observe(time.Since(before).Seconds())
+	}(time.Now())
 	defer func() {
 		if err == errFaultyDisk {
 			atomic.AddInt32(&s.ioErrCount, 1)
@@ -697,6 +713,9 @@ func (s *posix) ListDir(volume, dirPath string, count int) (entries []string, er
 // This API is meant to be used on files which have small memory footprint, do
 // not use this on large files as it would cause server to crash.
 func (s *posix) ReadAll(volume, path string) (buf []byte, err error) {
+	defer func(before time.Time) {
+		diskOperationDuration.With(prometheus.Labels{"operation_type": "ReadAll"}).Observe(time.Since(before).Seconds())
+	}(time.Now())
 	defer func() {
 		if err == errFaultyDisk {
 			atomic.AddInt32(&s.ioErrCount, 1)
@@ -772,6 +791,9 @@ func (s *posix) ReadAll(volume, path string) (buf []byte, err error) {
 // Additionally ReadFile also starts reading from an offset. ReadFile
 // semantics are same as io.ReadFull.
 func (s *posix) ReadFile(volume, path string, offset int64, buffer []byte, verifier *BitrotVerifier) (int64, error) {
+	defer func(before time.Time) {
+		diskOperationDuration.With(prometheus.Labels{"operation_type": "ReadFile"}).Observe(time.Since(before).Seconds())
+	}(time.Now())
 	var n int
 	var err error
 	defer func() {
@@ -877,6 +899,9 @@ func (s *posix) ReadFile(volume, path string, offset int64, buffer []byte, verif
 }
 
 func (s *posix) openFile(volume, path string, mode int) (f *os.File, err error) {
+	defer func(before time.Time) {
+		diskOperationDuration.With(prometheus.Labels{"operation_type": "openFile"}).Observe(time.Since(before).Seconds())
+	}(time.Now())
 	defer func() {
 		if err == errFaultyDisk {
 			atomic.AddInt32(&s.ioErrCount, 1)
@@ -1035,6 +1060,9 @@ func (s *posix) ReadFileStream(volume, path string, offset, length int64) (io.Re
 
 // CreateFile - creates the file.
 func (s *posix) CreateFile(volume, path string, fileSize int64, r io.Reader) (err error) {
+	defer func(before time.Time) {
+		diskOperationDuration.With(prometheus.Labels{"operation_type": "CreateFile"}).Observe(time.Since(before).Seconds())
+	}(time.Now())
 	if fileSize < 0 {
 		return errInvalidArgument
 	}
@@ -1104,6 +1132,9 @@ func (s *posix) CreateFile(volume, path string, fileSize int64, r io.Reader) (er
 }
 
 func (s *posix) WriteAll(volume, path string, buf []byte) (err error) {
+	defer func(before time.Time) {
+		diskOperationDuration.With(prometheus.Labels{"operation_type": "WriteAll"}).Observe(time.Since(before).Seconds())
+	}(time.Now())
 	defer func() {
 		if err == errFaultyDisk {
 			atomic.AddInt32(&s.ioErrCount, 1)
@@ -1116,7 +1147,7 @@ func (s *posix) WriteAll(volume, path string, buf []byte) (err error) {
 
 	// Create file if not found. Note that it is created with os.O_EXCL flag as the file
 	// always is supposed to be created in the tmp directory with a unique file name.
-	w, err := s.openFile(volume, path, os.O_CREATE|os.O_SYNC|os.O_WRONLY|os.O_EXCL)
+	w, err := s.openFile(volume, path, os.O_CREATE|os.O_WRONLY|os.O_EXCL)
 	if err != nil {
 		return err
 	}
@@ -1162,6 +1193,9 @@ func (s *posix) AppendFile(volume, path string, buf []byte) (err error) {
 
 // StatFile - get file info.
 func (s *posix) StatFile(volume, path string) (file FileInfo, err error) {
+	defer func(before time.Time) {
+		diskOperationDuration.With(prometheus.Labels{"operation_type": "StatFile"}).Observe(time.Since(before).Seconds())
+	}(time.Now())
 	defer func() {
 		if err == errFaultyDisk {
 			atomic.AddInt32(&s.ioErrCount, 1)
@@ -1261,6 +1295,9 @@ func deleteFile(basePath, deletePath string) error {
 
 // DeleteFile - delete a file at path.
 func (s *posix) DeleteFile(volume, path string) (err error) {
+	defer func(before time.Time) {
+		diskOperationDuration.With(prometheus.Labels{"operation_type": "DeleteFile"}).Observe(time.Since(before).Seconds())
+	}(time.Now())
 	defer func() {
 		if err == errFaultyDisk {
 			atomic.AddInt32(&s.ioErrCount, 1)
@@ -1303,6 +1340,9 @@ func (s *posix) DeleteFile(volume, path string) (err error) {
 
 // RenameFile - rename source path to destination path atomically.
 func (s *posix) RenameFile(srcVolume, srcPath, dstVolume, dstPath string) (err error) {
+	defer func(before time.Time) {
+		diskOperationDuration.With(prometheus.Labels{"operation_type": "RenameFile"}).Observe(time.Since(before).Seconds())
+	}(time.Now())
 	defer func() {
 		if err == errFaultyDisk {
 			atomic.AddInt32(&s.ioErrCount, 1)
