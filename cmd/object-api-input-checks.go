@@ -206,6 +206,7 @@ func checkPutObjectArgs(ctx context.Context, bucket, object string, obj ObjectLa
 
 // Checks whether bucket exists and returns appropriate error if not.
 func checkBucketExist(ctx context.Context, bucket string, obj ObjectLayer) error {
+	return nil
 	_, err := obj.GetBucketInfo(ctx, bucket)
 	if err != nil {
 		return err
