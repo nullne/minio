@@ -543,7 +543,11 @@ func (xl xlObjects) PutObject(ctx context.Context, bucket string, object string,
 		return objInfo, err
 	}
 	defer objectLock.Unlock()
-	return xl.putObject(ctx, bucket, object, data, opts)
+	if bucket == "foo" {
+		return xl.putObjectFast(ctx, bucket, object, data, opts)
+	} else {
+		return xl.putObject(ctx, bucket, object, data, opts)
+	}
 }
 
 // change the object stortage method

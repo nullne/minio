@@ -69,6 +69,12 @@ build: checks
 	@GOFLAGS="" CGO_ENABLED=0 go build -tags kqueue --ldflags $(BUILD_LDFLAGS) -o $(PWD)/minio
 	@GOFLAGS="" CGO_ENABLED=0 go build -tags kqueue --ldflags="-s -w" -o $(PWD)/dockerscripts/healthcheck $(PWD)/dockerscripts/healthcheck.go
 
+# Builds minio locally.
+lb: checks
+	@echo "Building minio binary to './minio'"
+	@GOOS=linux GOARCH=amd64 GOFLAGS="" CGO_ENABLED=0 go build -tags kqueue --ldflags $(BUILD_LDFLAGS) -o $(PWD)/minio
+	@GOOS=linux GOARCH=amd64 GOFLAGS="" CGO_ENABLED=0 go build -tags kqueue --ldflags="-s -w" -o $(PWD)/dockerscripts/healthcheck $(PWD)/dockerscripts/healthcheck.go
+
 docker: build
 	@docker build -t $(TAG) . -f Dockerfile.dev
 
