@@ -47,6 +47,9 @@ require (
 	github.com/eapache/queue v1.1.0 // indirect
 	github.com/eclipse/paho.mqtt.golang v0.0.0-20181129145454-379fd9f99ba5
 	github.com/elazarl/go-bindata-assetfs v0.0.0-20151224045452-57eb5e1fc594
+	github.com/facebookgo/ensure v0.0.0-20160127193407-b4ab57deab51 // indirect
+	github.com/facebookgo/stack v0.0.0-20160209184415-751773369052 // indirect
+	github.com/facebookgo/subset v0.0.0-20150612182917-8dac2c3c4870 // indirect
 	github.com/fatih/color v1.7.0
 	github.com/fatih/structs v1.1.0
 	github.com/fullsailor/pkcs7 v0.0.0-20180613152042-8306686428a5 // indirect
@@ -59,7 +62,8 @@ require (
 	github.com/go-stomp/stomp v2.0.2+incompatible // indirect
 	github.com/go-test/deep v1.0.1 // indirect
 	github.com/gocql/gocql v0.0.0-20190301043612-f6df8288f9b4 // indirect
-	github.com/gogo/protobuf v1.2.1 // indirect
+	github.com/gogo/protobuf v1.2.1
+	github.com/golang/protobuf v1.3.1
 	github.com/golang/snappy v0.0.1
 	github.com/gomodule/redigo v0.0.0-20190205135352-43fe51054af5
 	github.com/google/go-github v17.0.0+incompatible // indirect
@@ -104,6 +108,7 @@ require (
 	github.com/inconshreveable/go-update v0.0.0-20160112193335-8152e7eb6ccf
 	github.com/jeffchao/backoff v0.0.0-20140404060208-9d7fd7aa17f2 // indirect
 	github.com/jefferai/jsonx v1.0.0 // indirect
+	github.com/jmhodges/levigo v1.0.0
 	github.com/json-iterator/go v1.1.6 // indirect
 	github.com/keybase/go-crypto v0.0.0-20190312101036-b475f2ecc1fe // indirect
 	github.com/klauspost/compress v1.3.0 // indirect
@@ -163,20 +168,23 @@ require (
 	github.com/skyrings/skyring-common v0.0.0-20160324141443-762fd2bfc12e
 	github.com/smartystreets/goconvey v0.0.0-20190306220146-200a235640ff // indirect
 	github.com/streadway/amqp v0.0.0-20160311215503-2e25825abdbd
+	github.com/syndtr/goleveldb v1.0.0
+	github.com/tecbot/gorocksdb v0.0.0-20190519120508-025c3cf4ffb4
 	github.com/tidwall/gjson v1.1.4
 	github.com/tidwall/sjson v1.0.4
 	github.com/valyala/tcplisten v0.0.0-20161114210144-ceec8f93295a
 	go.uber.org/atomic v1.3.2
-	golang.org/x/crypto v0.0.0-20190313024323-a1f597ede03a
-	golang.org/x/lint v0.0.0-20190313153728-d0100b6bd8b3 // indirect
-	golang.org/x/net v0.0.0-20190318221613-d196dffd7c2b
-	golang.org/x/sys v0.0.0-20190318195719-6c81ef8f67ca
+	go.uber.org/multierr v1.1.0
+	golang.org/x/crypto v0.0.0-20190605123033-f99c8df09eb5
+	golang.org/x/net v0.0.0-20190603091049-60506f45cf65
+	golang.org/x/sys v0.0.0-20190606165138-5da285871e9c
 	golang.org/x/time v0.0.0-20181108054448-85acf8d2951c
-	golang.org/x/tools v0.0.0-20190318200714-bb1270c20edf // indirect
 	google.golang.org/api v0.0.0-20180916000451-19ff8768a5c0
-	google.golang.org/genproto v0.0.0-20180918203901-c3f76f3b92d1 // indirect
+	google.golang.org/appengine v1.6.1 // indirect
+	google.golang.org/genproto v0.0.0-20190611190212-a7e196e89fd3 // indirect
 	gopkg.in/Shopify/sarama.v1 v1.10.1
 	gopkg.in/asn1-ber.v1 v1.0.0-20181015200546-f715ec2f112d // indirect
+	gopkg.in/bufio.v1 v1.0.0-20140618132640-567b2bfa514e
 	gopkg.in/gorethink/gorethink.v4 v4.1.0 // indirect
 	gopkg.in/mgo.v2 v2.0.0-20180705113604-9856a29383ce // indirect
 	gopkg.in/olivere/elastic.v5 v5.0.31

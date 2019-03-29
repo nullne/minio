@@ -19,6 +19,8 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
 	"os"
 	"path"
 	"strconv"
@@ -33,6 +35,45 @@ const ActualSize = 1000
 // Tests for reading XL object info.
 func TestXLReadStat(t *testing.T) {
 	ExecObjectLayerDiskAlteredTest(t, testXLReadStat)
+}
+
+func TestMarshalXLMeta(t *testing.T) {
+	data := `{"version":"1.0.1","format":"xl","stat":{"size":65536,"modTime":"2019-03-22T20:00:40.017757229Z"},"erasure":{"algorithm":"klauspost/reedsolomon/vandermonde","data":4,"parity":4,"blockSize":10485760,"index":8,"distribution":[6,7,8,1,2,3,4,5],"checksum":[{"name":"part.1","algorithm":"highwayhash256S"}]},"minio":{"release":"DEVELOPMENT.2019-03-20T12-54-27Z"},"meta":{"X-Amz-Meta-Minio-Cluster-Id":"00","content-type":"application/octet-stream","etag":"4a999bd72506bdcdae70c35f78bc22d4"},"parts":[{"number":1,"name":"part.1","etag":"","size":65536,"actualSize":65536}]}`
+
+	var meta xlMetaV1
+	if err := json.Unmarshal([]byte(data), &meta); err != nil {
+		t.Error(err)
+		return
+	}
+
+	bs, err := meta.MarshalBinary()
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	fmt.Println(len(bs), len(data))
+
+	mm := &xlMetaV1{}
+	if err := mm.UnmarshalBinary(bs); err != nil {
+		t.Error(err)
+		return
+	}
+	// ignore field
+	mm.Minio.Release = meta.Minio.Release
+	if mod := time.Unix(0, meta.Stat.ModTime.UnixNano()); !mod.Equal(mm.Stat.ModTime) {
+		t.Error("mod time not euqal")
+	}
+	mm.Stat.ModTime = meta.Stat.ModTime
+	bs2, err := json.Marshal(mm)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	if !bytes.Equal([]byte(data), bs2) {
+		fmt.Println(data)
+		fmt.Println(string(bs2))
+		t.Error("data not euqal")
+	}
 }
 
 func testXLReadStat(obj ObjectLayer, instanceType string, disks []string, t *testing.T) {

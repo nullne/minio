@@ -60,10 +60,7 @@ type ClientGrantsResult struct {
 
 // ClientGrantsToken - client grants token with expiry.
 type ClientGrantsToken struct {
-	// access token returned after authenticating client grants
-	Token string
-	// expiry for the access token returned after authenticating
-	// client grants.
+	Token  string
 	Expiry int
 }
 

@@ -61,6 +61,8 @@ func registerAdminRouter(router *mux.Router, enableConfigOps, enableIAMOps bool)
 		adminV1Router.Methods(http.MethodPost).Path("/heal/{bucket}").HandlerFunc(httpTraceAll(adminAPI.HealHandler))
 		adminV1Router.Methods(http.MethodPost).Path("/heal/{bucket}/{prefix:.*}").HandlerFunc(httpTraceAll(adminAPI.HealHandler))
 
+		// Heal Single object
+		adminV1Router.Methods(http.MethodPatch).Path("/heal/{bucket}/{object:.*}").HandlerFunc(httpTraceAll(adminAPI.HealObjectHandler))
 		/// Health operations
 
 	}

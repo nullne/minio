@@ -31,7 +31,9 @@ import (
 	"github.com/minio/lsync"
 	"github.com/minio/minio-go/pkg/set"
 	"github.com/minio/minio/cmd/logger"
+	fv "github.com/minio/minio/cmd/volume"
 	xnet "github.com/minio/minio/pkg/net"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 // Global name space lock.
@@ -275,6 +277,9 @@ func (n *nsLockMap) NewNSLock(volume, path string) RWLocker {
 
 // Lock - block until write lock is taken or timeout has occurred.
 func (li *lockInstance) GetLock(timeout *dynamicTimeout) (timedOutErr error) {
+	defer func(before time.Time) {
+		fv.DiskOperationDuration.With(prometheus.Labels{"operation_type": "GetLock"}).Observe(time.Since(before).Seconds())
+	}(time.Now())
 	lockSource := getSource()
 	start := UTCNow()
 	readLock := false
@@ -288,12 +293,18 @@ func (li *lockInstance) GetLock(timeout *dynamicTimeout) (timedOutErr error) {
 
 // Unlock - block until write lock is released.
 func (li *lockInstance) Unlock() {
+	defer func(before time.Time) {
+		fv.DiskOperationDuration.With(prometheus.Labels{"operation_type": "Unlock"}).Observe(time.Since(before).Seconds())
+	}(time.Now())
 	readLock := false
 	li.ns.unlock(li.volume, li.path, li.opsID, readLock)
 }
 
 // RLock - block until read lock is taken or timeout has occurred.
 func (li *lockInstance) GetRLock(timeout *dynamicTimeout) (timedOutErr error) {
+	defer func(before time.Time) {
+		fv.DiskOperationDuration.With(prometheus.Labels{"operation_type": "GetRLock"}).Observe(time.Since(before).Seconds())
+	}(time.Now())
 	lockSource := getSource()
 	start := UTCNow()
 	readLock := true
@@ -307,6 +318,9 @@ func (li *lockInstance) GetRLock(timeout *dynamicTimeout) (timedOutErr error) {
 
 // RUnlock - block until read lock is released.
 func (li *lockInstance) RUnlock() {
+	defer func(before time.Time) {
+		fv.DiskOperationDuration.With(prometheus.Labels{"operation_type": "RUnlock"}).Observe(time.Since(before).Seconds())
+	}(time.Now())
 	readLock := true
 	li.ns.unlock(li.volume, li.path, li.opsID, readLock)
 }

@@ -26,6 +26,8 @@ import (
 	"time"
 
 	"github.com/minio/minio/cmd/logger"
+	fv "github.com/minio/minio/cmd/volume"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/tidwall/gjson"
 )
 
@@ -257,9 +259,17 @@ func readXLMetaParts(ctx context.Context, disk StorageAPI, bucket string, object
 		return nil, nil, err
 	}
 
+	var meta xlMetaV1
+	err = meta.UnmarshalBinary(xlMetaBuf)
+	if err != nil {
+		return nil, nil, err
+	}
+	xlMetaParts := meta.Parts
+	xlMetaMap := meta.Meta
+
 	// obtain xlMetaV1{}.Partsusing `github.com/tidwall/gjson`.
-	xlMetaParts := parseXLParts(xlMetaBuf)
-	xlMetaMap := parseXLMetaMap(xlMetaBuf)
+	// xlMetaParts := parseXLParts(xlMetaBuf)
+	// xlMetaMap := parseXLMetaMap(xlMetaBuf)
 
 	return xlMetaParts, xlMetaMap, nil
 }
@@ -272,36 +282,48 @@ func readXLMetaStat(ctx context.Context, disk StorageAPI, bucket string, object 
 		logger.LogIf(ctx, err)
 		return si, nil, err
 	}
+	var meta xlMetaV1
+	err = meta.UnmarshalBinary(xlMetaBuf)
+	if err != nil {
+		return si, nil, err
+	}
+	si = meta.Stat
+	mp = meta.Meta
 
-	// obtain version.
-	xlVersion := parseXLVersion(xlMetaBuf)
-
-	// obtain format.
-	xlFormat := parseXLFormat(xlMetaBuf)
+	// // obtain version.
+	// xlVersion := parseXLVersion(xlMetaBuf)
+	//
+	// // obtain format.
+	// xlFormat := parseXLFormat(xlMetaBuf)
 
 	// Validate if the xl.json we read is sane, return corrupted format.
-	if !isXLMetaFormatValid(xlVersion, xlFormat) {
+	if !isXLMetaFormatValid(meta.Version, meta.Format) {
 		// For version mismatchs and unrecognized format, return corrupted format.
 		logger.LogIf(ctx, errCorruptedFormat)
 		return si, nil, errCorruptedFormat
 	}
 
-	// obtain xlMetaV1{}.Meta using `github.com/tidwall/gjson`.
-	xlMetaMap := parseXLMetaMap(xlMetaBuf)
+	return
 
-	// obtain xlMetaV1{}.Stat using `github.com/tidwall/gjson`.
-	xlStat, err := parseXLStat(xlMetaBuf)
-	if err != nil {
-		logger.LogIf(ctx, err)
-		return si, nil, err
-	}
-
-	// Return structured `xl.json`.
-	return xlStat, xlMetaMap, nil
+	// // obtain xlMetaV1{}.Meta using `github.com/tidwall/gjson`.
+	// xlMetaMap := parseXLMetaMap(xlMetaBuf)
+	//
+	// // obtain xlMetaV1{}.Stat using `github.com/tidwall/gjson`.
+	// xlStat, err := parseXLStat(xlMetaBuf)
+	// if err != nil {
+	// 	logger.LogIf(ctx, err)
+	// 	return si, nil, err
+	// }
+	//
+	// // Return structured `xl.json`.
+	// return xlStat, xlMetaMap, nil
 }
 
 // readXLMeta reads `xl.json` and returns back XL metadata structure.
 func readXLMeta(ctx context.Context, disk StorageAPI, bucket string, object string) (xlMeta xlMetaV1, err error) {
+	defer func(before time.Time) {
+		fv.DiskOperationDuration.With(prometheus.Labels{"operation_type": "read_xlmeta_single"}).Observe(time.Since(before).Seconds())
+	}(time.Now())
 	// Reads entire `xl.json`.
 	xlMetaBuf, err := disk.ReadAll(bucket, path.Join(object, xlMetaJSONFile))
 	if err != nil {
@@ -314,12 +336,15 @@ func readXLMeta(ctx context.Context, disk StorageAPI, bucket string, object stri
 	if len(xlMetaBuf) == 0 {
 		return xlMetaV1{}, errFileNotFound
 	}
+
 	// obtain xlMetaV1{} using `github.com/tidwall/gjson`.
-	xlMeta, err = xlMetaV1UnmarshalJSON(ctx, xlMetaBuf)
+	// xlMeta, err = xlMetaV1UnmarshalJSON(ctx, xlMetaBuf)
+
+	err = xlMeta.UnmarshalBinary(xlMetaBuf)
 	if err != nil {
 		logger.GetReqInfo(ctx).AppendTags("disk", disk.String())
 		logger.LogIf(ctx, err)
-		return xlMetaV1{}, err
+		return xlMetaV1{}, errCorruptedFormat
 	}
 	// Return structured `xl.json`.
 	return xlMeta, nil
@@ -328,6 +353,9 @@ func readXLMeta(ctx context.Context, disk StorageAPI, bucket string, object stri
 // Reads all `xl.json` metadata as a xlMetaV1 slice.
 // Returns error slice indicating the failed metadata reads.
 func readAllXLMetadata(ctx context.Context, disks []StorageAPI, bucket, object string) ([]xlMetaV1, []error) {
+	defer func(before time.Time) {
+		fv.DiskOperationDuration.With(prometheus.Labels{"operation_type": "read_xlmeta_all"}).Observe(time.Since(before).Seconds())
+	}(time.Now())
 	errs := make([]error, len(disks))
 	metadataArray := make([]xlMetaV1, len(disks))
 	var wg = &sync.WaitGroup{}

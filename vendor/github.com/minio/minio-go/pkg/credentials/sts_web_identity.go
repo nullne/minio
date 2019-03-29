@@ -53,10 +53,7 @@ type WebIdentityResult struct {
 
 // WebIdentityToken - web identity token with expiry.
 type WebIdentityToken struct {
-	// access token returned after authenticating web identity.
-	Token string
-	// expiry for the access token returned after authenticating
-	// web identity.
+	Token  string
 	Expiry int
 }
 

@@ -1,0 +1,55 @@
+syntax = "proto3";
+package pb;
+
+message ObjectPartInfoType {
+	int32 number = 1;
+	string name = 2;
+	string etag = 3;
+	int64 size = 4;
+	int64 actualSize = 5;
+}
+
+
+message xlMetaV1 {
+  enum VersionType {
+	  V100 = 0;
+	  V101 = 1;
+  }
+  enum FormatType {
+	  XL = 0;
+  }
+  message StatInfo {
+	  int64 size = 1;
+	  int64 modTime = 2;
+  }
+  enum AlgorithmType {
+	  ErasureAlgorithmKlauspost = 0;
+
+  }
+  message ErasureInfoType {
+	  message ChecksumInfoType {
+		  string name = 1;
+		  int32 algorithm = 2;
+		  bytes hash = 3;
+	  }
+	  AlgorithmType algorithm = 1;
+	  int32 dataBlocks = 2;
+	  int32 parityBlocks = 3;
+	  int64 blockSize = 4;
+	  int32 index = 5;
+	  repeated int32 distribution = 6;
+	  repeated ChecksumInfoType checksums = 7;
+  }
+  message MinioType{
+	  string release = 1;
+  }
+
+  VersionType version = 1;
+  FormatType format = 2;
+  StatInfo stat = 3;
+  ErasureInfoType erasure = 4;
+  MinioType minio = 5;
+  map<string, string> meta = 6;
+  repeated ObjectPartInfoType Parts = 7;
+}
+

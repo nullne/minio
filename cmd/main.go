@@ -113,6 +113,7 @@ func newApp(name string) *cli.App {
 	registerCommand(serverCmd)
 	registerCommand(gatewayCmd)
 	registerCommand(updateCmd)
+	registerCommand(healCmd)
 	registerCommand(versionCmd)
 
 	// Set up app.

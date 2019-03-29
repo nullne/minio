@@ -437,7 +437,8 @@ func writeXLMetadata(ctx context.Context, disk StorageAPI, bucket, prefix string
 	jsonFile := path.Join(prefix, xlMetaJSONFile)
 
 	// Marshal json.
-	metadataBytes, err := json.Marshal(&xlMeta)
+	// metadataBytes, err := json.Marshal(&xlMeta)
+	metadataBytes, err := xlMeta.MarshalBinary()
 	if err != nil {
 		logger.LogIf(ctx, err)
 		return err

@@ -21,6 +21,7 @@ import (
 	"net/http"
 
 	"github.com/minio/minio/cmd/logger"
+	fv "github.com/minio/minio/cmd/volume"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
@@ -30,7 +31,7 @@ var (
 		prometheus.HistogramOpts{
 			Name:    "minio_http_requests_duration_seconds",
 			Help:    "Time taken by requests served by current Minio server instance",
-			Buckets: []float64{.001, .003, .005, .1, .5, 1},
+			Buckets: []float64{.001, .005, .01, .05, .1, 1},
 		},
 		[]string{"request_type"},
 	)
@@ -165,6 +166,9 @@ func metricsHandler() http.Handler {
 	registry := prometheus.NewRegistry()
 
 	err := registry.Register(httpRequestsDuration)
+	logger.LogIf(context.Background(), err)
+
+	err = registry.Register(fv.DiskOperationDuration)
 	logger.LogIf(context.Background(), err)
 
 	err = registry.Register(newMinioCollector())

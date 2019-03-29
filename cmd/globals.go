@@ -266,6 +266,7 @@ var (
 	GlobalGatewaySSE gatewaySSE
 
 	// Add new variable global values here.
+	globalFileVolumeEnabled bool
 )
 
 // global colors.

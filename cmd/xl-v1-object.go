@@ -24,10 +24,13 @@ import (
 	"path"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/minio/minio/cmd/logger"
+	fv "github.com/minio/minio/cmd/volume"
 	"github.com/minio/minio/pkg/hash"
 	"github.com/minio/minio/pkg/mimedb"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 // list all errors which can be ignored in object operations.
@@ -100,6 +103,13 @@ func (xl xlObjects) CopyObject(ctx context.Context, srcBucket, srcObject, dstBuc
 		}
 
 		var onlineDisks []StorageAPI
+
+		if globalFileVolumeEnabled && !isMinioMetaBucketName(srcBucket) {
+			if onlineDisks, err = writeUniqueXLMetadata(ctx, storageDisks, srcBucket, srcObject, metaArr, writeQuorum); err != nil {
+				return oi, toObjectErr(err, srcBucket, srcObject)
+			}
+			return xlMeta.ToObjectInfo(srcBucket, srcObject), nil
+		}
 
 		tempObj := mustGetUUID()
 
@@ -227,7 +237,6 @@ func (xl xlObjects) GetObject(ctx context.Context, bucket, object string, startO
 
 // getObject wrapper for xl GetObject
 func (xl xlObjects) getObject(ctx context.Context, bucket, object string, startOffset int64, length int64, writer io.Writer, etag string, opts ObjectOptions) error {
-
 	if err := checkGetObjArgs(ctx, bucket, object); err != nil {
 		return err
 	}
@@ -431,6 +440,9 @@ func (xl xlObjects) GetObjectInfo(ctx context.Context, bucket, object string, op
 
 // getObjectInfo - wrapper for reading object metadata and constructs ObjectInfo.
 func (xl xlObjects) getObjectInfo(ctx context.Context, bucket, object string) (objInfo ObjectInfo, err error) {
+	defer func(before time.Time) {
+		fv.DiskOperationDuration.With(prometheus.Labels{"operation_type": "getObjectInfo"}).Observe(time.Since(before).Seconds())
+	}(time.Now())
 	disks := xl.getDisks()
 
 	// Read metadata associated with the object from all disks.
@@ -548,6 +560,10 @@ func (xl xlObjects) PutObject(ctx context.Context, bucket string, object string,
 
 // putObject wrapper for xl PutObject
 func (xl xlObjects) putObject(ctx context.Context, bucket string, object string, r *PutObjReader, opts ObjectOptions) (objInfo ObjectInfo, err error) {
+	if globalFileVolumeEnabled && !isMinioMetaBucketName(bucket) {
+		return xl.putObjectFast(ctx, bucket, object, r, opts)
+	}
+
 	data := r.Reader
 
 	uniqueID := mustGetUUID()
@@ -803,6 +819,9 @@ func (xl xlObjects) putObject(ctx context.Context, bucket string, object string,
 // all the disks in parallel, including `xl.json` associated with the
 // object.
 func (xl xlObjects) deleteObject(ctx context.Context, bucket, object string, writeQuorum int, isDir bool) error {
+	if globalFileVolumeEnabled && !isMinioMetaBucketName(bucket) {
+		return xl.deleteObjectFast(ctx, bucket, object, writeQuorum, isDir)
+	}
 	var disks []StorageAPI
 	var err error
 
