@@ -19,9 +19,11 @@ package cmd
 import (
 	"context"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
+	"path"
 	slashpath "path"
 	"path/filepath"
 	"runtime"
@@ -37,6 +39,7 @@ import (
 	"github.com/minio/minio/cmd/logger"
 	"github.com/minio/minio/pkg/disk"
 	"github.com/minio/minio/pkg/mountinfo"
+	"github.com/syndtr/goleveldb/leveldb"
 )
 
 const (
@@ -76,6 +79,27 @@ type posix struct {
 	diskFileInfo os.FileInfo
 	// Disk usage metrics
 	stopUsageCh chan struct{}
+
+	levelDBs map[string]*leveldb.DB
+}
+
+// @TODO need lock here
+func (s *posix) addLevelDB(ps ...string) error {
+	for _, p := range ps {
+		if isReservedOrInvalidBucket(p, true) {
+			continue
+		}
+		fmt.Println(p)
+		if _, ok := s.levelDBs[p]; ok {
+			continue
+		}
+		db, err := leveldb.OpenFile(path.Join(s.diskPath, p), nil)
+		if err != nil {
+			return err
+		}
+		s.levelDBs[p] = db
+	}
+	return nil
 }
 
 // checkPathLength - returns error if given path name length more than 255
@@ -195,6 +219,17 @@ func newPosix(path string) (*posix, error) {
 		stopUsageCh:  make(chan struct{}),
 		diskFileInfo: fi,
 		diskMount:    mountinfo.IsLikelyMountPoint(path),
+		levelDBs:     make(map[string]*leveldb.DB),
+	}
+
+	vols, err := listVols(path)
+	if err != nil {
+		return nil, err
+	}
+	for _, v := range vols {
+		if err := p.addLevelDB(v.Name); err != nil {
+			return nil, err
+		}
 	}
 
 	var pf BoolFlag
@@ -297,6 +332,9 @@ func (s *posix) LastError() error {
 func (s *posix) Close() error {
 	close(s.stopUsageCh)
 	s.connected = false
+	for _, db := range s.levelDBs {
+		db.Close()
+	}
 	return nil
 }
 
@@ -458,6 +496,7 @@ func (s *posix) diskUsage(doneCh chan struct{}) {
 }
 
 // Make a volume entry.
+// @TODO  init new level db
 func (s *posix) MakeVol(volume string) (err error) {
 	defer func() {
 		if err == errFaultyDisk {
@@ -492,6 +531,9 @@ func (s *posix) MakeVol(volume string) (err error) {
 			return errDiskAccessDenied
 		} else if isSysErrIO(err) {
 			return errFaultyDisk
+		}
+		if err == nil {
+			err = s.addLevelDB(volume)
 		}
 		return err
 	}
@@ -1045,50 +1087,69 @@ func (s *posix) CreateFile(volume, path string, fileSize int64, r io.Reader) (er
 		return err
 	}
 
-	// Create file if not found. Note that it is created with os.O_EXCL flag as the file
-	// always is supposed to be created in the tmp directory with a unique file name.
-	w, err := s.openFile(volume, path, os.O_CREATE|os.O_APPEND|os.O_WRONLY|os.O_EXCL)
-	if err != nil {
-		return err
+	//@TODO add more control
+	db, ok := s.levelDBs[volume]
+	if !ok {
+		return fmt.Errorf("leveldb %s has NOT been found", volume)
 	}
-
-	defer w.Close()
-
-	var e error
-	if fileSize > 0 {
-		// Allocate needed disk space to append data
-		e = Fallocate(int(w.Fd()), 0, fileSize)
-	}
-
-	// Ignore errors when Fallocate is not supported in the current system
-	if e != nil && !isSysErrNoSys(e) && !isSysErrOpNotSupported(e) {
-		switch {
-		case isSysErrNoSpace(e):
-			err = errDiskFull
-		case isSysErrIO(e):
-			err = errFaultyDisk
-		default:
-			// For errors: EBADF, EINTR, EINVAL, ENODEV, EPERM, ESPIPE  and ETXTBSY
-			// Appending was failed anyway, returns unexpected error
-			err = errUnexpected
-		}
-		return err
-	}
-
 	bufp := s.pool.Get().(*[]byte)
 	defer s.pool.Put(bufp)
-
-	n, err := io.CopyBuffer(w, r, *bufp)
+	n, err := r.Read(*bufp)
 	if err != nil {
 		return err
 	}
-	if n < fileSize {
+	if int64(n) < fileSize {
 		return errLessData
 	}
-	if n > fileSize {
+	if int64(n) > fileSize {
 		return errMoreData
 	}
-	return nil
+	return db.Put([]byte(path), (*bufp)[:n], nil)
+
+	// // Create file if not found. Note that it is created with os.O_EXCL flag as the file
+	// // always is supposed to be created in the tmp directory with a unique file name.
+	// w, err := s.openFile(volume, path, os.O_CREATE|os.O_APPEND|os.O_WRONLY|os.O_EXCL)
+	// if err != nil {
+	// 	return err
+	// }
+	//
+	// defer w.Close()
+	//
+	// var e error
+	// if fileSize > 0 {
+	// 	// Allocate needed disk space to append data
+	// 	e = Fallocate(int(w.Fd()), 0, fileSize)
+	// }
+	//
+	// // Ignore errors when Fallocate is not supported in the current system
+	// if e != nil && !isSysErrNoSys(e) && !isSysErrOpNotSupported(e) {
+	// 	switch {
+	// 	case isSysErrNoSpace(e):
+	// 		err = errDiskFull
+	// 	case isSysErrIO(e):
+	// 		err = errFaultyDisk
+	// 	default:
+	// 		// For errors: EBADF, EINTR, EINVAL, ENODEV, EPERM, ESPIPE  and ETXTBSY
+	// 		// Appending was failed anyway, returns unexpected error
+	// 		err = errUnexpected
+	// 	}
+	// 	return err
+	// }
+	//
+	// bufp := s.pool.Get().(*[]byte)
+	// defer s.pool.Put(bufp)
+	//
+	// n, err := io.CopyBuffer(w, r, *bufp)
+	// if err != nil {
+	// 	return err
+	// }
+	// if n < fileSize {
+	// 	return errLessData
+	// }
+	// if n > fileSize {
+	// 	return errMoreData
+	// }
+	// return nil
 }
 
 func (s *posix) WriteAll(volume, path string, buf []byte) (err error) {
@@ -1101,6 +1162,13 @@ func (s *posix) WriteAll(volume, path string, buf []byte) (err error) {
 	if atomic.LoadInt32(&s.ioErrCount) > maxAllowedIOError {
 		return errFaultyDisk
 	}
+
+	// @TODO  add more control
+	db, ok := s.levelDBs[volume]
+	if !ok {
+		return fmt.Errorf("leveldb %s has NOT been found", volume)
+	}
+	return db.Put([]byte(path), buf, nil)
 
 	// Create file if not found. Note that it is created with os.O_EXCL flag as the file
 	// always is supposed to be created in the tmp directory with a unique file name.
