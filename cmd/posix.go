@@ -108,7 +108,7 @@ func (s *posix) addLevelDB(ps ...string) error {
 		if _, ok := oldDBs[p]; ok {
 			continue
 		}
-		db, err := volume.NewVolume(path.Join(s.diskPath, p), 007)
+		db, err := volume.NewVolume(path.Join(s.diskPath, p), 7)
 		if err != nil {
 			return err
 		}
