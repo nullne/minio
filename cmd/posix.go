@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"hash/crc32"
 	"io"
 	"io/ioutil"
 	"os"
@@ -35,11 +36,11 @@ import (
 
 	"bytes"
 
+	"github.com/030io/whalefs/manager/volume"
 	humanize "github.com/dustin/go-humanize"
 	"github.com/minio/minio/cmd/logger"
 	"github.com/minio/minio/pkg/disk"
 	"github.com/minio/minio/pkg/mountinfo"
-	"github.com/syndtr/goleveldb/leveldb"
 )
 
 const (
@@ -83,19 +84,18 @@ type posix struct {
 	levelDBs atomic.Value
 }
 
-func (s *posix) getLevelDB(name string) (*leveldb.DB, error) {
-	dbs := s.levelDBs.Load().(map[string]*leveldb.DB)
+func (s *posix) getLevelDB(name string) (*volume.Volume, error) {
+	dbs := s.levelDBs.Load().(map[string]*volume.Volume)
 	db, ok := dbs[name]
 	if !ok {
-		return nil, fmt.Errorf("leveldb %s has NOT been found", name)
+		return nil, fmt.Errorf("fuck leveldb %s-%s has NOT been found", s.diskPath, name)
 	}
 	return db, nil
 }
 
-// @TODO need lock here
 func (s *posix) addLevelDB(ps ...string) error {
-	oldDBs := s.levelDBs.Load().(map[string]*leveldb.DB)
-	newDBs := make(map[string]*leveldb.DB, len(oldDBs)+len(ps))
+	oldDBs := s.levelDBs.Load().(map[string]*volume.Volume)
+	newDBs := make(map[string]*volume.Volume, len(oldDBs)+len(ps))
 	for k, v := range oldDBs {
 		newDBs[k] = v
 	}
@@ -107,7 +107,7 @@ func (s *posix) addLevelDB(ps ...string) error {
 		if _, ok := oldDBs[p]; ok {
 			continue
 		}
-		db, err := leveldb.OpenFile(path.Join(s.diskPath, p), nil)
+		db, err := volume.NewVolume(path.Join(s.diskPath, p), 007)
 		if err != nil {
 			return err
 		}
@@ -235,7 +235,7 @@ func newPosix(path string) (*posix, error) {
 		diskFileInfo: fi,
 		diskMount:    mountinfo.IsLikelyMountPoint(path),
 	}
-	p.levelDBs.Store(make(map[string]*leveldb.DB))
+	p.levelDBs.Store(make(map[string]*volume.Volume))
 
 	vols, err := listVols(path)
 	if err != nil {
@@ -347,11 +347,11 @@ func (s *posix) LastError() error {
 func (s *posix) Close() error {
 	close(s.stopUsageCh)
 	s.connected = false
-	dbs := s.levelDBs.Load().(map[string]*leveldb.DB)
+	dbs := s.levelDBs.Load().(map[string]*volume.Volume)
 	for _, db := range dbs {
 		db.Close()
 	}
-	s.levelDBs.Store(make(map[string]*leveldb.DB))
+	s.levelDBs.Store(make(map[string]*volume.Volume))
 	return nil
 }
 
@@ -1122,7 +1122,15 @@ func (s *posix) CreateFile(volume, path string, fileSize int64, r io.Reader) (er
 		if int64(nn) > fileSize {
 			return errMoreData
 		}
-		return db.Put([]byte(path), bs, nil)
+		crc32q := crc32.MakeTable(0xD5828281)
+		fid := crc32.Checksum([]byte(path), crc32q)
+		f, err := db.NewFile(uint64(fid), path, uint64(nn))
+		if err != nil {
+			return err
+		}
+		_, err = f.Write(bs)
+		return err
+		// return db.Put([]byte(path), bs, nil)
 	}
 
 	// Create file if not found. Note that it is created with os.O_EXCL flag as the file
@@ -1189,7 +1197,16 @@ func (s *posix) WriteAll(volume, path string, buf []byte) (err error) {
 		if err != nil {
 			return err
 		}
-		return db.Put([]byte(path), buf, nil)
+		crc32q := crc32.MakeTable(0xD5828281)
+		fid := crc32.Checksum([]byte(path), crc32q)
+		f, err := db.NewFile(uint64(fid), path, uint64(len(buf)))
+		if err != nil {
+			return err
+		}
+		_, err = f.Write(buf)
+		return err
+
+		// return db.Put([]byte(path), buf, nil)
 	}
 
 	// Create file if not found. Note that it is created with os.O_EXCL flag as the file
