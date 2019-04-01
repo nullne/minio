@@ -86,6 +86,7 @@ type posix struct {
 
 func (s *posix) getLevelDB(name string) (*volume.Volume, error) {
 	dbs := s.levelDBs.Load().(map[string]*volume.Volume)
+	fmt.Println(dbs, "-----")
 	db, ok := dbs[name]
 	if !ok {
 		return nil, fmt.Errorf("fuck leveldb %s-%s has NOT been found", s.diskPath, name)
@@ -103,7 +104,7 @@ func (s *posix) addLevelDB(ps ...string) error {
 		if isReservedOrInvalidBucket(p, true) {
 			continue
 		}
-		// fmt.Println(p)
+		fmt.Println("create level db:", s.diskPath, p)
 		if _, ok := oldDBs[p]; ok {
 			continue
 		}
@@ -784,6 +785,21 @@ func (s *posix) ReadAll(volume, path string) (buf []byte, err error) {
 		return nil, err
 	}
 
+	if volume == "foo" {
+		fmt.Println("read all from path:", path)
+		db, err := s.getLevelDB(volume)
+		if err != nil {
+			return nil, err
+		}
+		crc32q := crc32.MakeTable(0xD5828281)
+		fid := crc32.Checksum([]byte(path), crc32q)
+		f, err := db.Get(uint64(fid))
+		if err != nil {
+			return nil, err
+		}
+		return ioutil.ReadAll(f)
+	}
+
 	// Validate file path length, before reading.
 	filePath := pathJoin(volumeDir, path)
 	if err = checkPathLength((filePath)); err != nil {
@@ -871,6 +887,10 @@ func (s *posix) ReadFile(volume, path string, offset int64, buffer []byte, verif
 		return 0, err
 	}
 
+	if volume == "foo" {
+		return s.readFileFast(volume, path, offset, buffer, verifier)
+	}
+
 	// Open the file for reading.
 	file, err := os.Open((filePath))
 	if err != nil {
@@ -932,6 +952,25 @@ func (s *posix) ReadFile(volume, path string, offset int64, buffer []byte, verif
 	}
 
 	return int64(len(buffer)), nil
+}
+
+func (s *posix) readFileFast(volume, path string, offset int64, buffer []byte, verifier *BitrotVerifier) (int64, error) {
+	fmt.Println("read from path:", path)
+	db, err := s.getLevelDB(volume)
+	if err != nil {
+		return 0, err
+	}
+	crc32q := crc32.MakeTable(0xD5828281)
+	fid := crc32.Checksum([]byte(path), crc32q)
+	file, err := db.Get(uint64(fid))
+	if err != nil {
+		return 0, err
+	}
+	if _, err = file.Seek(offset, io.SeekStart); err != nil {
+		return 0, err
+	}
+	n, err := file.Read(buffer)
+	return int64(n), err
 }
 
 func (s *posix) openFile(volume, path string, mode int) (f *os.File, err error) {
@@ -1043,6 +1082,10 @@ func (s *posix) ReadFileStream(volume, path string, offset, length int64) (io.Re
 		return nil, err
 	}
 
+	if volume == "foo" {
+		return s.readFileStreamFast(volume, path, offset, length)
+	}
+
 	// Open the file for reading.
 	file, err := os.Open((filePath))
 	if err != nil {
@@ -1071,6 +1114,27 @@ func (s *posix) ReadFileStream(volume, path string, offset, length int64) (io.Re
 		return nil, errIsNotRegular
 	}
 
+	if _, err = file.Seek(offset, io.SeekStart); err != nil {
+		return nil, err
+	}
+	return struct {
+		io.Reader
+		io.Closer
+	}{Reader: io.LimitReader(file, length), Closer: file}, nil
+}
+
+func (s *posix) readFileStreamFast(volume, path string, offset, length int64) (io.ReadCloser, error) {
+	fmt.Println("read stream from path:", path)
+	db, err := s.getLevelDB(volume)
+	if err != nil {
+		return nil, err
+	}
+	crc32q := crc32.MakeTable(0xD5828281)
+	fid := crc32.Checksum([]byte(path), crc32q)
+	file, err := db.Get(uint64(fid))
+	if err != nil {
+		return nil, err
+	}
 	if _, err = file.Seek(offset, io.SeekStart); err != nil {
 		return nil, err
 	}
@@ -1123,6 +1187,7 @@ func (s *posix) CreateFile(volume, path string, fileSize int64, r io.Reader) (er
 			return errMoreData
 		}
 		crc32q := crc32.MakeTable(0xD5828281)
+		fmt.Println("write to path:", path)
 		fid := crc32.Checksum([]byte(path), crc32q)
 		f, err := db.NewFile(uint64(fid), path, uint64(nn))
 		if err != nil {
@@ -1199,6 +1264,7 @@ func (s *posix) WriteAll(volume, path string, buf []byte) (err error) {
 		}
 		crc32q := crc32.MakeTable(0xD5828281)
 		fid := crc32.Checksum([]byte(path), crc32q)
+		fmt.Println("write all to path:", path)
 		f, err := db.NewFile(uint64(fid), path, uint64(len(buf)))
 		if err != nil {
 			return err

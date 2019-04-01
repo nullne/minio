@@ -687,7 +687,7 @@ func (xl xlObjects) putObjectFast(ctx context.Context, bucket string, object str
 			if disk == nil {
 				continue
 			}
-			writers[i] = newBitrotWriter(disk, bucket, object, erasure.ShardFileSize(curPartSize), DefaultBitrotAlgorithm, erasure.ShardSize())
+			writers[i] = newBitrotWriter(disk, bucket, pathJoin(object, partName), erasure.ShardFileSize(curPartSize), DefaultBitrotAlgorithm, erasure.ShardSize())
 		}
 
 		n, erasureErr := erasure.Encode(ctx, curPartReader, writers, buffer, erasure.dataBlocks+1)
