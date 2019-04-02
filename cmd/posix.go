@@ -19,6 +19,7 @@ package cmd
 import (
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"hash/crc32"
 	"io"
@@ -94,7 +95,10 @@ func (s *posix) getLevelDB(name string) (*volume.Volume, error) {
 	return db, nil
 }
 
+var counttt = 0
+
 func (s *posix) addLevelDB(ps ...string) error {
+	counttt += 1
 	oldDBs := s.levelDBs.Load().(map[string]*volume.Volume)
 	newDBs := make(map[string]*volume.Volume, len(oldDBs)+len(ps))
 	for k, v := range oldDBs {
@@ -105,6 +109,10 @@ func (s *posix) addLevelDB(ps ...string) error {
 			continue
 		}
 		fmt.Println("create level db:", s.diskPath, p)
+		if counttt > 200 {
+
+			panic(errors.New("fuck"))
+		}
 		if _, ok := oldDBs[p]; ok {
 			continue
 		}
@@ -112,6 +120,7 @@ func (s *posix) addLevelDB(ps ...string) error {
 		if err != nil {
 			return err
 		}
+		fmt.Println("successfully create level db:", s.diskPath, p)
 		newDBs[p] = db
 	}
 	s.levelDBs.Store(newDBs)
@@ -238,15 +247,15 @@ func newPosix(path string) (*posix, error) {
 	}
 	p.levelDBs.Store(make(map[string]*volume.Volume))
 
-	vols, err := listVols(path)
-	if err != nil {
-		return nil, err
-	}
-	for _, v := range vols {
-		if err := p.addLevelDB(v.Name); err != nil {
-			return nil, err
-		}
-	}
+	// vols, err := listVols(path)
+	// if err != nil {
+	// 	return nil, err
+	// }
+	// for _, v := range vols {
+	// 	if err := p.addLevelDB(v.Name); err != nil {
+	// 		return nil, err
+	// 	}
+	// }
 
 	var pf BoolFlag
 	if driveSync := os.Getenv("MINIO_DRIVE_SYNC"); driveSync != "" {
@@ -346,6 +355,7 @@ func (s *posix) LastError() error {
 }
 
 func (s *posix) Close() error {
+	fmt.Println("posix closed: ", s.diskPath)
 	close(s.stopUsageCh)
 	s.connected = false
 	dbs := s.levelDBs.Load().(map[string]*volume.Volume)
@@ -514,7 +524,6 @@ func (s *posix) diskUsage(doneCh chan struct{}) {
 }
 
 // Make a volume entry.
-// @TODO  init new level db
 func (s *posix) MakeVol(volume string) (err error) {
 	defer func() {
 		if err == errFaultyDisk {
@@ -1187,13 +1196,13 @@ func (s *posix) CreateFile(volume, path string, fileSize int64, r io.Reader) (er
 			return errMoreData
 		}
 		crc32q := crc32.MakeTable(0xD5828281)
-		fmt.Println("write to path:", path)
+		fmt.Println("write to path:", path, s.diskPath)
 		fid := crc32.Checksum([]byte(path), crc32q)
-		f, err := db.NewFile(uint64(fid), path, uint64(nn))
-		if err != nil {
-			return err
-		}
-		_, err = f.Write(bs)
+		_, err = db.WriteFile(uint64(fid), path, uint64(nn), bs)
+		// if err != nil {
+		// 	return err
+		// }
+		// _, err = f.Write(bs)
 		return err
 		// return db.Put([]byte(path), bs, nil)
 	}
@@ -1264,12 +1273,12 @@ func (s *posix) WriteAll(volume, path string, buf []byte) (err error) {
 		}
 		crc32q := crc32.MakeTable(0xD5828281)
 		fid := crc32.Checksum([]byte(path), crc32q)
-		fmt.Println("write all to path:", path)
-		f, err := db.NewFile(uint64(fid), path, uint64(len(buf)))
-		if err != nil {
-			return err
-		}
-		_, err = f.Write(buf)
+		fmt.Println("write all to path:", path, s.diskPath)
+		_, err = db.WriteFile(uint64(fid), path, uint64(len(buf)), buf)
+		// if err != nil {
+		// 	return err
+		// }
+		// _, err = f.Write(buf)
 		return err
 
 		// return db.Put([]byte(path), buf, nil)
