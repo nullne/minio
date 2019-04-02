@@ -20,7 +20,6 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
-	"hash/crc32"
 	"io"
 	"io/ioutil"
 	"os"
@@ -36,11 +35,12 @@ import (
 
 	"bytes"
 
-	"github.com/030io/whalefs/manager/volume"
 	humanize "github.com/dustin/go-humanize"
 	"github.com/minio/minio/cmd/logger"
 	"github.com/minio/minio/pkg/disk"
 	"github.com/minio/minio/pkg/mountinfo"
+	"github.com/nullne/didactic-couscous/volume"
+	"gopkg.in/bufio.v1"
 )
 
 const (
@@ -113,7 +113,7 @@ func (s *posix) addLevelDB(ps ...string) error {
 		if _, ok := levelDBs.dbs[p]; ok {
 			continue
 		}
-		db, err := volume.NewVolume(path.Join(s.diskPath, p), 7)
+		db, err := volume.NewVolume(path.Join(s.diskPath, p), "hay")
 		if err != nil {
 			return err
 		}
@@ -792,18 +792,19 @@ func (s *posix) ReadAll(volume, path string) (buf []byte, err error) {
 	}
 
 	if volume == "foo" {
-		fmt.Println("read all from path:", path)
+		fmt.Println("read all from path:", path, s.diskPath)
 		db, err := s.getLevelDB(volume)
 		if err != nil {
+			fmt.Println("read all error", err)
 			return nil, err
 		}
-		crc32q := crc32.MakeTable(0xD5828281)
-		fid := crc32.Checksum([]byte(path), crc32q)
-		f, err := db.Get(uint64(fid))
+		bs, err := db.Get(path)
 		if err != nil {
+			fmt.Println("read all error", err)
 			return nil, err
+
 		}
-		return ioutil.ReadAll(f)
+		return bs, nil
 	}
 
 	// Validate file path length, before reading.
@@ -966,17 +967,11 @@ func (s *posix) readFileFast(volume, path string, offset int64, buffer []byte, v
 	if err != nil {
 		return 0, err
 	}
-	crc32q := crc32.MakeTable(0xD5828281)
-	fid := crc32.Checksum([]byte(path), crc32q)
-	file, err := db.Get(uint64(fid))
+	bs, err := db.Get(path)
 	if err != nil {
 		return 0, err
 	}
-	if _, err = file.Seek(offset, io.SeekStart); err != nil {
-		return 0, err
-	}
-	n, err := file.Read(buffer)
-	return int64(n), err
+	return int64(len(bs)) - offset, nil
 }
 
 func (s *posix) openFile(volume, path string, mode int) (f *os.File, err error) {
@@ -1135,19 +1130,16 @@ func (s *posix) readFileStreamFast(volume, path string, offset, length int64) (i
 	if err != nil {
 		return nil, err
 	}
-	crc32q := crc32.MakeTable(0xD5828281)
-	fid := crc32.Checksum([]byte(path), crc32q)
-	file, err := db.Get(uint64(fid))
+	bs, err := db.Get(path)
 	if err != nil {
 		return nil, err
 	}
-	if _, err = file.Seek(offset, io.SeekStart); err != nil {
-		return nil, err
-	}
-	return struct {
-		io.Reader
-		io.Closer
-	}{Reader: io.LimitReader(file, length), Closer: file}, nil
+	file := bufio.NewBuffer(bs[offset:])
+	// return struct {
+	// 	io.Reader
+	// 	io.Closer
+	// }{Reader: io.LimitReader(file, length), Closer: nil}, nil
+	return ioutil.NopCloser(io.LimitReader(file, length)), nil
 }
 
 // CreateFile - creates the file.
@@ -1181,26 +1173,26 @@ func (s *posix) CreateFile(volume, path string, fileSize int64, r io.Reader) (er
 		if err != nil {
 			return err
 		}
-		bs, err := ioutil.ReadAll(r)
+		nn, err := db.Put(path, uint64(fileSize), r)
+		// bs, err := ioutil.ReadAll(r)
 		if err != nil {
 			return err
 		}
-		nn := len(bs)
 		if int64(nn) < fileSize {
 			return errLessData
 		}
 		if int64(nn) > fileSize {
 			return errMoreData
 		}
-		crc32q := crc32.MakeTable(0xD5828281)
-		fmt.Println("write to path:", path, s.diskPath)
-		fid := crc32.Checksum([]byte(path), crc32q)
-		_, err = db.WriteFile(uint64(fid), path, uint64(nn), bs)
+		// fmt.Println("write to path:", path, s.diskPath)
+		// crc32q := crc32.MakeTable(0xD5828281)
+		// fid := crc32.Checksum([]byte(path), crc32q)
+		// _, err = db.WriteFile(uint64(fid), path, uint64(nn), bs)
 		// if err != nil {
 		// 	return err
 		// }
 		// _, err = f.Write(bs)
-		return err
+		return nil
 		// return db.Put([]byte(path), bs, nil)
 	}
 
@@ -1268,10 +1260,9 @@ func (s *posix) WriteAll(volume, path string, buf []byte) (err error) {
 		if err != nil {
 			return err
 		}
-		crc32q := crc32.MakeTable(0xD5828281)
-		fid := crc32.Checksum([]byte(path), crc32q)
-		fmt.Println("write all to path:", path, s.diskPath)
-		_, err = db.WriteFile(uint64(fid), path, uint64(len(buf)), buf)
+		// fmt.Println("write all to path:", path, s.diskPath)
+		_, err = db.Put(path, uint64(len(buf)), bufio.NewBuffer(buf))
+		// _, err = db.WriteFile(uint64(fid), path, uint64(len(buf)), buf)
 		// if err != nil {
 		// 	return err
 		// }
