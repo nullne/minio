@@ -18,7 +18,6 @@ package cmd
 
 import (
 	"context"
-	"fmt"
 	"path"
 	"sync"
 
@@ -98,7 +97,6 @@ func deleteBucketMetadata(ctx context.Context, bucket string, objAPI ObjectLayer
 // Depending on the disk type network or local, initialize storage API.
 func newStorageAPI(endpoint Endpoint) (storage StorageAPI, err error) {
 	if endpoint.IsLocal {
-		fmt.Println("new storage API:", endpoint.URL.String(), endpoint.IsLocal)
 		return newPosix(endpoint.Path)
 	}
 

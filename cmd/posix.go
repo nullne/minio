@@ -19,7 +19,6 @@ package cmd
 import (
 	"context"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"hash/crc32"
 	"io"
@@ -82,38 +81,36 @@ type posix struct {
 	// Disk usage metrics
 	stopUsageCh chan struct{}
 
-	levelDBs atomic.Value
+	// levelDBs atomic.Value
+}
+
+var levelDBs = struct {
+	dbs  map[string]*volume.Volume
+	lock sync.RWMutex
+}{
+	dbs: make(map[string]*volume.Volume),
 }
 
 func (s *posix) getLevelDB(name string) (*volume.Volume, error) {
-	dbs := s.levelDBs.Load().(map[string]*volume.Volume)
-	fmt.Println(dbs, "-----")
-	db, ok := dbs[name]
+	key := fmt.Sprintf("%s%s", s.diskPath, name)
+	levelDBs.lock.RLock()
+	db, ok := levelDBs.dbs[key]
+	levelDBs.lock.RUnlock()
 	if !ok {
-		return nil, fmt.Errorf("fuck leveldb %s-%s has NOT been found", s.diskPath, name)
+		return nil, fmt.Errorf("level db %s not found", name)
 	}
 	return db, nil
 }
 
-var counttt = 0
-
 func (s *posix) addLevelDB(ps ...string) error {
-	counttt += 1
-	oldDBs := s.levelDBs.Load().(map[string]*volume.Volume)
-	newDBs := make(map[string]*volume.Volume, len(oldDBs)+len(ps))
-	for k, v := range oldDBs {
-		newDBs[k] = v
-	}
+	levelDBs.lock.Lock()
+	defer levelDBs.lock.Unlock()
 	for _, p := range ps {
-		if isReservedOrInvalidBucket(p, true) {
-			continue
-		}
+		// if isReservedOrInvalidBucket(p, true) {
+		// 	continue
+		// }
 		fmt.Println("create level db:", s.diskPath, p)
-		if counttt > 200 {
-
-			panic(errors.New("fuck"))
-		}
-		if _, ok := oldDBs[p]; ok {
+		if _, ok := levelDBs.dbs[p]; ok {
 			continue
 		}
 		db, err := volume.NewVolume(path.Join(s.diskPath, p), 7)
@@ -121,9 +118,9 @@ func (s *posix) addLevelDB(ps ...string) error {
 			return err
 		}
 		fmt.Println("successfully create level db:", s.diskPath, p)
-		newDBs[p] = db
+		key := fmt.Sprintf("%s%s", s.diskPath, p)
+		levelDBs.dbs[key] = db
 	}
-	s.levelDBs.Store(newDBs)
 	return nil
 }
 
@@ -245,7 +242,7 @@ func newPosix(path string) (*posix, error) {
 		diskFileInfo: fi,
 		diskMount:    mountinfo.IsLikelyMountPoint(path),
 	}
-	p.levelDBs.Store(make(map[string]*volume.Volume))
+	// p.levelDBs.Store(make(map[string]*volume.Volume))
 
 	// vols, err := listVols(path)
 	// if err != nil {
@@ -253,6 +250,7 @@ func newPosix(path string) (*posix, error) {
 	// }
 	// for _, v := range vols {
 	// 	if err := p.addLevelDB(v.Name); err != nil {
+	// 		fmt.Println("cannot add levelDB: ", err)
 	// 		return nil, err
 	// 	}
 	// }
@@ -355,14 +353,13 @@ func (s *posix) LastError() error {
 }
 
 func (s *posix) Close() error {
-	fmt.Println("posix closed: ", s.diskPath)
 	close(s.stopUsageCh)
 	s.connected = false
-	dbs := s.levelDBs.Load().(map[string]*volume.Volume)
-	for _, db := range dbs {
-		db.Close()
-	}
-	s.levelDBs.Store(make(map[string]*volume.Volume))
+	// dbs := s.levelDBs.Load().(map[string]*volume.Volume)
+	// for _, db := range dbs {
+	// 	db.Close()
+	// }
+	// s.levelDBs.Store(make(map[string]*volume.Volume))
 	return nil
 }
 
