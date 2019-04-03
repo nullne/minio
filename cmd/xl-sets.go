@@ -116,7 +116,6 @@ func connectEndpoint(endpoint Endpoint) (StorageAPI, *formatXLV3, error) {
 	format, err := loadFormatXL(disk)
 	if err != nil {
 		// Close the internal connection to avoid connection leaks.
-		fmt.Println("connectEndpoint: ", err)
 		disk.Close()
 		return nil, nil, err
 	}
@@ -187,7 +186,6 @@ func (s *xlSets) connectDisksWithQuorum() {
 			i, j, err := findDiskIndex(s.format, format)
 			if err != nil {
 				// Close the internal connection to avoid connection leaks.
-				fmt.Println("connectDisksWithQuorum: ", err)
 				disk.Close()
 				printEndpointError(endpoint, err)
 				continue
@@ -216,7 +214,6 @@ func (s *xlSets) connectDisks() {
 		i, j, err := findDiskIndex(s.format, format)
 		if err != nil {
 			// Close the internal connection to avoid connection leaks.
-			fmt.Println("connectDisks: ", err)
 			disk.Close()
 			printEndpointError(endpoint, err)
 			continue

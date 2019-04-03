@@ -19,11 +19,9 @@ package cmd
 import (
 	"context"
 	"encoding/hex"
-	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
-	"path"
 	slashpath "path"
 	"path/filepath"
 	"runtime"
@@ -39,8 +37,6 @@ import (
 	"github.com/minio/minio/cmd/logger"
 	"github.com/minio/minio/pkg/disk"
 	"github.com/minio/minio/pkg/mountinfo"
-	"github.com/nullne/didactic-couscous/volume"
-	"gopkg.in/bufio.v1"
 )
 
 const (
@@ -80,48 +76,6 @@ type posix struct {
 	diskFileInfo os.FileInfo
 	// Disk usage metrics
 	stopUsageCh chan struct{}
-
-	// levelDBs atomic.Value
-}
-
-var levelDBs = struct {
-	dbs  map[string]*volume.Volume
-	lock sync.RWMutex
-}{
-	dbs: make(map[string]*volume.Volume),
-}
-
-func (s *posix) getLevelDB(name string) (*volume.Volume, error) {
-	key := fmt.Sprintf("%s%s", s.diskPath, name)
-	levelDBs.lock.RLock()
-	db, ok := levelDBs.dbs[key]
-	levelDBs.lock.RUnlock()
-	if !ok {
-		return nil, fmt.Errorf("level db %s not found", name)
-	}
-	return db, nil
-}
-
-func (s *posix) addLevelDB(ps ...string) error {
-	levelDBs.lock.Lock()
-	defer levelDBs.lock.Unlock()
-	for _, p := range ps {
-		// if isReservedOrInvalidBucket(p, true) {
-		// 	continue
-		// }
-		fmt.Println("create level db:", s.diskPath, p)
-		if _, ok := levelDBs.dbs[p]; ok {
-			continue
-		}
-		db, err := volume.NewVolume(path.Join(s.diskPath, p), "hay")
-		if err != nil {
-			return err
-		}
-		fmt.Println("successfully create level db:", s.diskPath, p)
-		key := fmt.Sprintf("%s%s", s.diskPath, p)
-		levelDBs.dbs[key] = db
-	}
-	return nil
 }
 
 // checkPathLength - returns error if given path name length more than 255
@@ -242,18 +196,16 @@ func newPosix(path string) (*posix, error) {
 		diskFileInfo: fi,
 		diskMount:    mountinfo.IsLikelyMountPoint(path),
 	}
-	// p.levelDBs.Store(make(map[string]*volume.Volume))
 
-	// vols, err := listVols(path)
-	// if err != nil {
-	// 	return nil, err
-	// }
-	// for _, v := range vols {
-	// 	if err := p.addLevelDB(v.Name); err != nil {
-	// 		fmt.Println("cannot add levelDB: ", err)
-	// 		return nil, err
-	// 	}
-	// }
+	vols, err := listVols(path)
+	if err != nil {
+		return nil, err
+	}
+	for _, v := range vols {
+		if err := addFileVolume(filepath.Join(p.diskPath, v.Name)); err != nil {
+			return nil, err
+		}
+	}
 
 	var pf BoolFlag
 	if driveSync := os.Getenv("MINIO_DRIVE_SYNC"); driveSync != "" {
@@ -355,11 +307,6 @@ func (s *posix) LastError() error {
 func (s *posix) Close() error {
 	close(s.stopUsageCh)
 	s.connected = false
-	// dbs := s.levelDBs.Load().(map[string]*volume.Volume)
-	// for _, db := range dbs {
-	// 	db.Close()
-	// }
-	// s.levelDBs.Store(make(map[string]*volume.Volume))
 	return nil
 }
 
@@ -556,9 +503,9 @@ func (s *posix) MakeVol(volume string) (err error) {
 		} else if isSysErrIO(err) {
 			return errFaultyDisk
 		}
-		if err == nil && volume == "foo" {
-			err = s.addLevelDB(volume)
-		}
+		// if err == nil && volume == "foo" {
+		// err = addFileVolume(path.Join(s.diskPath, volume))
+		// }
 		return err
 	}
 
@@ -792,19 +739,7 @@ func (s *posix) ReadAll(volume, path string) (buf []byte, err error) {
 	}
 
 	if volume == "foo" {
-		fmt.Println("read all from path:", path, s.diskPath)
-		db, err := s.getLevelDB(volume)
-		if err != nil {
-			fmt.Println("read all error", err)
-			return nil, err
-		}
-		bs, err := db.Get(path)
-		if err != nil {
-			fmt.Println("read all error", err)
-			return nil, err
-
-		}
-		return bs, nil
+		return s.readAllFromFileVolume(volume, path)
 	}
 
 	// Validate file path length, before reading.
@@ -895,7 +830,7 @@ func (s *posix) ReadFile(volume, path string, offset int64, buffer []byte, verif
 	}
 
 	if volume == "foo" {
-		return s.readFileFast(volume, path, offset, buffer, verifier)
+		return s.readFileFromFileVolume(volume, path, offset, buffer, verifier)
 	}
 
 	// Open the file for reading.
@@ -959,19 +894,6 @@ func (s *posix) ReadFile(volume, path string, offset int64, buffer []byte, verif
 	}
 
 	return int64(len(buffer)), nil
-}
-
-func (s *posix) readFileFast(volume, path string, offset int64, buffer []byte, verifier *BitrotVerifier) (int64, error) {
-	fmt.Println("read from path:", path)
-	db, err := s.getLevelDB(volume)
-	if err != nil {
-		return 0, err
-	}
-	bs, err := db.Get(path)
-	if err != nil {
-		return 0, err
-	}
-	return int64(len(bs)) - offset, nil
 }
 
 func (s *posix) openFile(volume, path string, mode int) (f *os.File, err error) {
@@ -1084,7 +1006,7 @@ func (s *posix) ReadFileStream(volume, path string, offset, length int64) (io.Re
 	}
 
 	if volume == "foo" {
-		return s.readFileStreamFast(volume, path, offset, length)
+		return s.readFileStreamFromFileVolume(volume, path, offset, length)
 	}
 
 	// Open the file for reading.
@@ -1124,24 +1046,6 @@ func (s *posix) ReadFileStream(volume, path string, offset, length int64) (io.Re
 	}{Reader: io.LimitReader(file, length), Closer: file}, nil
 }
 
-func (s *posix) readFileStreamFast(volume, path string, offset, length int64) (io.ReadCloser, error) {
-	fmt.Println("read stream from path:", path)
-	db, err := s.getLevelDB(volume)
-	if err != nil {
-		return nil, err
-	}
-	bs, err := db.Get(path)
-	if err != nil {
-		return nil, err
-	}
-	file := bufio.NewBuffer(bs[offset:])
-	// return struct {
-	// 	io.Reader
-	// 	io.Closer
-	// }{Reader: io.LimitReader(file, length), Closer: nil}, nil
-	return ioutil.NopCloser(io.LimitReader(file, length)), nil
-}
-
 // CreateFile - creates the file.
 func (s *posix) CreateFile(volume, path string, fileSize int64, r io.Reader) (err error) {
 	if fileSize < 0 {
@@ -1165,35 +1069,9 @@ func (s *posix) CreateFile(volume, path string, fileSize int64, r io.Reader) (er
 		}
 		return err
 	}
-	// fmt.Println("create file", volume, path)
 
 	if volume == "foo" {
-		//@TODO add more control
-		db, err := s.getLevelDB(volume)
-		if err != nil {
-			return err
-		}
-		nn, err := db.Put(path, uint64(fileSize), r)
-		// bs, err := ioutil.ReadAll(r)
-		if err != nil {
-			return err
-		}
-		if int64(nn) < fileSize {
-			return errLessData
-		}
-		if int64(nn) > fileSize {
-			return errMoreData
-		}
-		// fmt.Println("write to path:", path, s.diskPath)
-		// crc32q := crc32.MakeTable(0xD5828281)
-		// fid := crc32.Checksum([]byte(path), crc32q)
-		// _, err = db.WriteFile(uint64(fid), path, uint64(nn), bs)
-		// if err != nil {
-		// 	return err
-		// }
-		// _, err = f.Write(bs)
-		return nil
-		// return db.Put([]byte(path), bs, nil)
+		return s.createFileToFileVolume(volume, path, fileSize, r)
 	}
 
 	// Create file if not found. Note that it is created with os.O_EXCL flag as the file
@@ -1253,23 +1131,8 @@ func (s *posix) WriteAll(volume, path string, buf []byte) (err error) {
 		return errFaultyDisk
 	}
 
-	// fmt.Println("write all", volume, path)
-	// @TODO  add more control
 	if volume == "foo" {
-		db, err := s.getLevelDB(volume)
-		if err != nil {
-			return err
-		}
-		// fmt.Println("write all to path:", path, s.diskPath)
-		_, err = db.Put(path, uint64(len(buf)), bufio.NewBuffer(buf))
-		// _, err = db.WriteFile(uint64(fid), path, uint64(len(buf)), buf)
-		// if err != nil {
-		// 	return err
-		// }
-		// _, err = f.Write(buf)
-		return err
-
-		// return db.Put([]byte(path), buf, nil)
+		s.writeAllToFileVolume(volume, path, buf)
 	}
 
 	// Create file if not found. Note that it is created with os.O_EXCL flag as the file
