@@ -47,6 +47,12 @@ var (
 		"WORM can only accept `on` and `off` values. To enable WORM, set this value to `on`",
 	)
 
+	uiErrInvalidFileVolumeValue = newUIErrFn(
+		"Invalid File Volume value",
+		"Please check the passed value",
+		"File Volume can only accept `on` and `off` values. To enable File Volume, set this value to `on`",
+	)
+
 	uiErrInvalidCacheDrivesValue = newUIErrFn(
 		"Invalid cache drive value",
 		"Please check the value in this ENV variable",

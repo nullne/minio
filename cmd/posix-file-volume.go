@@ -120,3 +120,25 @@ func (s *posix) createFileToFileVolume(volume, path string, fileSize int64, r io
 	}
 	return nil
 }
+
+func (s *posix) deleteFromFileVolume(volume, path string) error {
+	vol, err := getFileVolume(filepath.Join(s.diskPath, volume))
+	if err != nil {
+		return err
+	}
+	return vol.DeleteByPrefix(path)
+}
+
+func (s *posix) statFromFileVolume(volume, path string) (FileInfo, error) {
+	vol, err := getFileVolume(filepath.Join(s.diskPath, volume))
+	if err != nil {
+		return FileInfo{}, err
+	}
+	fi, err := vol.Stat(path)
+	if err != nil {
+		return FileInfo{}, err
+	}
+	return FileInfo{
+		Size: 100,
+	}, nil
+}
