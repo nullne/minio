@@ -1116,7 +1116,7 @@ func (xl xlObjects) deleteObject(ctx context.Context, bucket, object string, wri
 
 func (xl xlObjects) deleteObjectFast(ctx context.Context, bucket, object string, writeQuorum int, isDir bool) error {
 	var disks []StorageAPI
-	var err error
+	// var err error
 
 	// tmpObj := mustGetUUID()
 	// if bucket == minioMetaTmpBucket {

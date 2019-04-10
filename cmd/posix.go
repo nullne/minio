@@ -22,6 +22,7 @@ import (
 	"io"
 	"io/ioutil"
 	"os"
+	"path"
 	slashpath "path"
 	"path/filepath"
 	"runtime"
@@ -503,7 +504,7 @@ func (s *posix) MakeVol(volume string) (err error) {
 		} else if isSysErrIO(err) {
 			return errFaultyDisk
 		}
-		if globalFileVolumeEnabled && !isMinioMetaBucketName(bucket) {
+		if globalFileVolumeEnabled && !isMinioMetaBucketName(volume) {
 			err = addFileVolume(path.Join(s.diskPath, volume))
 		}
 		return err
@@ -738,7 +739,7 @@ func (s *posix) ReadAll(volume, path string) (buf []byte, err error) {
 		return nil, err
 	}
 
-	if globalFileVolumeEnabled && !isMinioMetaBucketName(bucket) {
+	if globalFileVolumeEnabled && !isMinioMetaBucketName(volume) {
 		return s.readAllFromFileVolume(volume, path)
 	}
 
@@ -829,7 +830,7 @@ func (s *posix) ReadFile(volume, path string, offset int64, buffer []byte, verif
 		return 0, err
 	}
 
-	if globalFileVolumeEnabled && !isMinioMetaBucketName(bucket) {
+	if globalFileVolumeEnabled && !isMinioMetaBucketName(volume) {
 		return s.readFileFromFileVolume(volume, path, offset, buffer, verifier)
 	}
 
@@ -1005,7 +1006,7 @@ func (s *posix) ReadFileStream(volume, path string, offset, length int64) (io.Re
 		return nil, err
 	}
 
-	if globalFileVolumeEnabled && !isMinioMetaBucketName(bucket) {
+	if globalFileVolumeEnabled && !isMinioMetaBucketName(volume) {
 		return s.readFileStreamFromFileVolume(volume, path, offset, length)
 	}
 
@@ -1070,7 +1071,7 @@ func (s *posix) CreateFile(volume, path string, fileSize int64, r io.Reader) (er
 		return err
 	}
 
-	if globalFileVolumeEnabled && !isMinioMetaBucketName(bucket) {
+	if globalFileVolumeEnabled && !isMinioMetaBucketName(volume) {
 		return s.createFileToFileVolume(volume, path, fileSize, r)
 	}
 
@@ -1131,7 +1132,7 @@ func (s *posix) WriteAll(volume, path string, buf []byte) (err error) {
 		return errFaultyDisk
 	}
 
-	if globalFileVolumeEnabled && !isMinioMetaBucketName(bucket) {
+	if globalFileVolumeEnabled && !isMinioMetaBucketName(volume) {
 		s.writeAllToFileVolume(volume, path, buf)
 	}
 
@@ -1324,7 +1325,7 @@ func (s *posix) DeleteFile(volume, path string) (err error) {
 		return err
 	}
 
-	if globalFileVolumeEnabled && !isMinioMetaBucketName(bucket) {
+	if globalFileVolumeEnabled && !isMinioMetaBucketName(volume) {
 		return s.deleteFromFileVolume(volumeDir, filePath)
 	}
 
