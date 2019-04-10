@@ -60,6 +60,11 @@ func handleSignals() {
 			logger.LogIf(context.Background(), oerr)
 		}
 
+		if globalFileVolumeEnabled {
+			err = closeFileVolume()
+			logger.LogIf(context.Background(), err)
+		}
+
 		return (err == nil && oerr == nil)
 	}
 

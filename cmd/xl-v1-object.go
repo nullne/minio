@@ -101,6 +101,13 @@ func (xl xlObjects) CopyObject(ctx context.Context, srcBucket, srcObject, dstBuc
 
 		var onlineDisks []StorageAPI
 
+		if globalFileVolumeEnabled && !isMinioMetaBucketName(srcBucket) {
+			if onlineDisks, err = writeUniqueXLMetadata(ctx, storageDisks, srcBucket, srcObject, metaArr, writeQuorum); err != nil {
+				return oi, toObjectErr(err, srcBucket, srcObject)
+			}
+			return xlMeta.ToObjectInfo(srcBucket, srcObject), nil
+		}
+
 		tempObj := mustGetUUID()
 
 		// Write unique `xl.json` for each disk.

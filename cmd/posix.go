@@ -198,13 +198,18 @@ func newPosix(path string) (*posix, error) {
 		diskMount:    mountinfo.IsLikelyMountPoint(path),
 	}
 
-	vols, err := listVols(path)
-	if err != nil {
-		return nil, err
-	}
-	for _, v := range vols {
-		if err := addFileVolume(filepath.Join(p.diskPath, v.Name)); err != nil {
+	if globalFileVolumeEnabled {
+		vols, err := listVols(path)
+		if err != nil {
 			return nil, err
+		}
+		for _, v := range vols {
+			if isMinioMetaBucketName(v.Name) {
+				continue
+			}
+			if err := addFileVolume(filepath.Join(p.diskPath, v.Name)); err != nil {
+				return nil, err
+			}
 		}
 	}
 
@@ -1133,7 +1138,7 @@ func (s *posix) WriteAll(volume, path string, buf []byte) (err error) {
 	}
 
 	if globalFileVolumeEnabled && !isMinioMetaBucketName(volume) {
-		s.writeAllToFileVolume(volume, path, buf)
+		return s.writeAllToFileVolume(volume, path, buf)
 	}
 
 	// Create file if not found. Note that it is created with os.O_EXCL flag as the file

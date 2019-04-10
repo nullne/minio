@@ -10,6 +10,7 @@ import (
 	"time"
 
 	fv "github.com/nullne/didactic-couscous/volume"
+	"github.com/syndtr/goleveldb/leveldb"
 	"gopkg.in/bufio.v1"
 )
 
@@ -62,7 +63,18 @@ func closeFileVolume() error {
 	return nil
 }
 
+func convertError(err error) error {
+	switch err {
+	case leveldb.ErrNotFound:
+		return errFileNotFound
+	default:
+		return err
+	}
+}
+
 func (s *posix) readAllFromFileVolume(volume, path string) (buf []byte, err error) {
+	defer func() { err = convertError(err) }()
+
 	vol, err := getFileVolume(filepath.Join(s.diskPath, volume))
 	if err != nil {
 		return nil, err
@@ -70,7 +82,9 @@ func (s *posix) readAllFromFileVolume(volume, path string) (buf []byte, err erro
 	return vol.ReadAll(path)
 }
 
-func (s *posix) readFileFromFileVolume(volume, path string, offset int64, buffer []byte, verifier *BitrotVerifier) (int64, error) {
+func (s *posix) readFileFromFileVolume(volume, path string, offset int64, buffer []byte, verifier *BitrotVerifier) (nn int64, err error) {
+	defer func() { err = convertError(err) }()
+
 	vol, err := getFileVolume(filepath.Join(s.diskPath, volume))
 	if err != nil {
 		return 0, err
@@ -112,7 +126,9 @@ func (s *posix) readFileFromFileVolume(volume, path string, offset int64, buffer
 	return int64(len(buffer)), nil
 }
 
-func (s *posix) readFileStreamFromFileVolume(volume, path string, offset, length int64) (io.ReadCloser, error) {
+func (s *posix) readFileStreamFromFileVolume(volume, path string, offset, length int64) (r io.ReadCloser, err error) {
+	defer func() { err = convertError(err) }()
+
 	vol, err := getFileVolume(filepath.Join(s.diskPath, volume))
 	if err != nil {
 		return nil, err
@@ -137,24 +153,39 @@ func (s *posix) createFileToFileVolume(volume, path string, fileSize int64, r io
 }
 
 func (s *posix) deleteFromFileVolume(volume, path string) error {
-	return nil
-	// vol, err := getFileVolume(filepath.Join(s.diskPath, volume))
-	// if err != nil {
-	// 	return err
-	// }
-	// return vol.DeleteByPrefix(path)
+	vol, err := getFileVolume(filepath.Join(s.diskPath, volume))
+	if err != nil {
+		return err
+	}
+	return vol.Delete(path, false)
 }
 
-func (s *posix) statFromFileVolume(volume, path string) (FileInfo, error) {
-	// vol, err := getFileVolume(filepath.Join(s.diskPath, volume))
-	// if err != nil {
-	// 	return FileInfo{}, err
-	// }
-	// fi, err := vol.Stat(path)
-	// if err != nil {
-	// 	return FileInfo{}, err
-	// }
+func (s *posix) statFromFileVolume(volume, path string) (info FileInfo, err error) {
+	defer func() { err = convertError(err) }()
+
+	vol, err := getFileVolume(filepath.Join(s.diskPath, volume))
+	if err != nil {
+		return FileInfo{}, err
+	}
+	fi, err := vol.Stat(path)
+	if err != nil {
+		if err == leveldb.ErrNotFound {
+			return FileInfo{}, errFileNotFound
+		}
+		return FileInfo{}, err
+	}
+	if fi.IsDir() {
+		return FileInfo{}, errFileNotFound
+	}
 	return FileInfo{
-		Size: 100,
+		Volume:  volume,
+		Name:    path,
+		ModTime: fi.ModTime(),
+		Size:    fi.Size(),
+		Mode:    fi.Mode(),
 	}, nil
+}
+
+func (s *posix) appendFileToFileVolume(volume, path string, buf []byte) (err error) {
+	return nil
 }
