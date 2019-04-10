@@ -604,6 +604,14 @@ func (s *posix) StatVol(volume string) (volInfo VolInfo, err error) {
 		return VolInfo{}, err
 	}
 
+	// sometime StatVol will be invoked to Stat dir
+	if globalFileVolumeEnabled {
+		idx := strings.Index(volume, slashSeparator)
+		if idx != -1 {
+			return s.statFromFileVolume(volume[:idx+1], volume[idx+1:])
+		}
+	}
+
 	// Verify if volume is valid and it exists.
 	volumeDir, err := s.getVolDir(volume)
 	if err != nil {
@@ -683,6 +691,10 @@ func (s *posix) ListDir(volume, dirPath string, count int) (entries []string, er
 
 	if err = s.checkDiskFound(); err != nil {
 		return nil, err
+	}
+
+	if globalFileVolumeEnabled && !isMinioMetaBucketName(volume) {
+		return s.listDirFromFileVolume(volume, dirPath, count)
 	}
 
 	// Verify if volume is valid and it exists.

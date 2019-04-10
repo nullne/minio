@@ -186,6 +186,17 @@ func (s *posix) statFromFileVolume(volume, path string) (info FileInfo, err erro
 	}, nil
 }
 
+func (s *posix) listDirFromFileVolume(volume, dirPath string, count int) (entries []string, err error) {
+	defer func() { err = convertError(err) }()
+
+	vol, err := getFileVolume(filepath.Join(s.diskPath, volume))
+	if err != nil {
+		return FileInfo{}, err
+	}
+
+	vol.List(dirPath, count)
+}
+
 func (s *posix) appendFileToFileVolume(volume, path string, buf []byte) (err error) {
 	return nil
 }
