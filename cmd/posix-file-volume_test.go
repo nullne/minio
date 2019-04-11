@@ -28,12 +28,12 @@ func TestFileVolume(t *testing.T) {
 		return
 	}
 	bs1 := []byte("fooo")
-	_, err = fv.Put("key", 1, bufio.NewBuffer(bs1))
+	err = fv.WriteAll("key", 1, bufio.NewBuffer(bs1))
 	if err != nil {
 		t.Error(err)
 		return
 	}
-	bs2, err := fv.Get("key")
+	bs2, err := fv.ReadAll("key")
 	if err != nil {
 		t.Error(err)
 		return
@@ -65,12 +65,12 @@ func TestFileVolumeConcurrent(t *testing.T) {
 		return
 	}
 	bs1 := []byte("fooo")
-	_, err = fv.Put("key", 1, bufio.NewBuffer(bs1))
+	err = fv.WriteAll("key", 1, bufio.NewBuffer(bs1))
 	if err != nil {
 		t.Error(err)
 		return
 	}
-	bs2, err := fv.Get("key")
+	bs2, err := fv.ReadAll("key")
 	if err != nil {
 		t.Error(err)
 		return

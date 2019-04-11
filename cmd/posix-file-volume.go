@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"sync"
 	"time"
@@ -65,7 +66,7 @@ func closeFileVolume() error {
 
 func convertError(err error) error {
 	switch err {
-	case leveldb.ErrNotFound:
+	case leveldb.ErrNotFound, os.ErrNotExist:
 		return errFileNotFound
 	default:
 		return err
@@ -157,10 +158,10 @@ func (s *posix) deleteFromFileVolume(volume, path string) error {
 	if err != nil {
 		return err
 	}
-	return vol.Delete(path, false)
+	return vol.Delete(path)
 }
 
-func (s *posix) statFromFileVolume(volume, path string) (info FileInfo, err error) {
+func (s *posix) statFileFromFileVolume(volume, path string) (info FileInfo, err error) {
 	defer func() { err = convertError(err) }()
 
 	vol, err := getFileVolume(filepath.Join(s.diskPath, volume))
@@ -169,9 +170,6 @@ func (s *posix) statFromFileVolume(volume, path string) (info FileInfo, err erro
 	}
 	fi, err := vol.Stat(path)
 	if err != nil {
-		if err == leveldb.ErrNotFound {
-			return FileInfo{}, errFileNotFound
-		}
 		return FileInfo{}, err
 	}
 	if fi.IsDir() {
@@ -186,15 +184,32 @@ func (s *posix) statFromFileVolume(volume, path string) (info FileInfo, err erro
 	}, nil
 }
 
+func (s *posix) statDirFromFileVolume(volume, path string) (volInfo VolInfo, err error) {
+	defer func() { err = convertError(err) }()
+
+	vol, err := getFileVolume(filepath.Join(s.diskPath, volume))
+	if err != nil {
+		return VolInfo{}, err
+	}
+	fi, err := vol.StatDir(path)
+	if err != nil {
+		return VolInfo{}, err
+	}
+	return VolInfo{
+		Name:    fi.Name(),
+		Created: fi.ModTime(),
+	}, nil
+}
+
 func (s *posix) listDirFromFileVolume(volume, dirPath string, count int) (entries []string, err error) {
 	defer func() { err = convertError(err) }()
 
 	vol, err := getFileVolume(filepath.Join(s.diskPath, volume))
 	if err != nil {
-		return FileInfo{}, err
+		return nil, err
 	}
 
-	vol.List(dirPath, count)
+	return vol.List(dirPath, count)
 }
 
 func (s *posix) appendFileToFileVolume(volume, path string, buf []byte) (err error) {

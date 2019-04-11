@@ -19,6 +19,7 @@ package cmd
 import (
 	"context"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
@@ -608,7 +609,7 @@ func (s *posix) StatVol(volume string) (volInfo VolInfo, err error) {
 	if globalFileVolumeEnabled {
 		idx := strings.Index(volume, slashSeparator)
 		if idx != -1 {
-			return s.statFromFileVolume(volume[:idx+1], volume[idx+1:])
+			return s.statDirFromFileVolume(volume[:idx+1], volume[idx+1:])
 		}
 	}
 
@@ -679,6 +680,9 @@ func (s *posix) DeleteVol(volume string) (err error) {
 // ListDir - return all the entries at the given directory path.
 // If an entry is a directory it will be returned with a trailing "/".
 func (s *posix) ListDir(volume, dirPath string, count int) (entries []string, err error) {
+	defer func(o string) {
+		fmt.Println(o, dirPath, count, entries, err)
+	}(dirPath)
 	defer func() {
 		if err == errFaultyDisk {
 			atomic.AddInt32(&s.ioErrCount, 1)
@@ -1229,7 +1233,7 @@ func (s *posix) StatFile(volume, path string) (file FileInfo, err error) {
 	}
 
 	if globalFileVolumeEnabled && !isMinioMetaBucketName(volume) {
-		return s.statFromFileVolume(volume, path)
+		return s.statFileFromFileVolume(volume, path)
 	}
 
 	filePath := slashpath.Join(volumeDir, path)
