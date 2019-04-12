@@ -34,10 +34,20 @@ var (
 		},
 		[]string{"request_type"},
 	)
+
+	diskOperationDuration = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "minio_disk_operation_duration_seconds",
+			Help:    "Time taken by requests served by current Minio server instance",
+			Buckets: []float64{.001, .003, .005, 0.02, .1, .5, 1},
+		},
+		[]string{"operation_type"},
+	)
 )
 
 func init() {
 	prometheus.MustRegister(httpRequestsDuration)
+	prometheus.MustRegister(diskOperationDuration)
 	prometheus.MustRegister(newMinioCollector())
 }
 
@@ -165,6 +175,9 @@ func metricsHandler() http.Handler {
 	registry := prometheus.NewRegistry()
 
 	err := registry.Register(httpRequestsDuration)
+	logger.LogIf(context.Background(), err)
+
+	err = registry.Register(diskOperationDuration)
 	logger.LogIf(context.Background(), err)
 
 	err = registry.Register(newMinioCollector())

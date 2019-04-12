@@ -19,7 +19,6 @@ package cmd
 import (
 	"context"
 	"encoding/hex"
-	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
@@ -680,9 +679,6 @@ func (s *posix) DeleteVol(volume string) (err error) {
 // ListDir - return all the entries at the given directory path.
 // If an entry is a directory it will be returned with a trailing "/".
 func (s *posix) ListDir(volume, dirPath string, count int) (entries []string, err error) {
-	defer func(o string) {
-		fmt.Println(o, dirPath, count, entries, err)
-	}(dirPath)
 	defer func() {
 		if err == errFaultyDisk {
 			atomic.AddInt32(&s.ioErrCount, 1)
