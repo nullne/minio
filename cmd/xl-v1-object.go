@@ -24,10 +24,13 @@ import (
 	"path"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/minio/minio/cmd/logger"
 	"github.com/minio/minio/pkg/hash"
 	"github.com/minio/minio/pkg/mimedb"
+	"github.com/nullne/didactic-couscous/volume"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 // list all errors which can be ignored in object operations.
@@ -153,6 +156,10 @@ func (xl xlObjects) CopyObject(ctx context.Context, srcBucket, srcObject, dstBuc
 // GetObjectNInfo - returns object info and an object
 // Read(Closer). When err != nil, the returned reader is always nil.
 func (xl xlObjects) GetObjectNInfo(ctx context.Context, bucket, object string, rs *HTTPRangeSpec, h http.Header, lockType LockType, opts ObjectOptions) (gr *GetObjectReader, err error) {
+	defer func(before time.Time) {
+		volume.DiskOperationDuration.With(prometheus.Labels{"operation_type": "GET"}).Observe(time.Since(before).Seconds())
+	}(time.Now())
+	before := time.Now()
 	var nsUnlocker = func() {}
 
 	// Acquire lock
@@ -199,6 +206,8 @@ func (xl xlObjects) GetObjectNInfo(ctx context.Context, bucket, object string, r
 		return nil, toObjectErr(err, bucket, object)
 	}
 
+	volume.DiskOperationDuration.With(prometheus.Labels{"operation_type": "get_object_info"}).Observe(time.Since(before).Seconds())
+
 	fn, off, length, nErr := NewGetObjectReader(rs, objInfo, opts.CheckCopyPrecondFn, nsUnlocker)
 	if nErr != nil {
 		return nil, nErr
@@ -234,6 +243,10 @@ func (xl xlObjects) GetObject(ctx context.Context, bucket, object string, startO
 
 // getObject wrapper for xl GetObject
 func (xl xlObjects) getObject(ctx context.Context, bucket, object string, startOffset int64, length int64, writer io.Writer, etag string, opts ObjectOptions) error {
+	defer func(before time.Time) {
+		volume.DiskOperationDuration.With(prometheus.Labels{"operation_type": "get"}).Observe(time.Since(before).Seconds())
+	}(time.Now())
+	before := time.Now()
 
 	if err := checkGetObjArgs(ctx, bucket, object); err != nil {
 		return err
@@ -261,6 +274,8 @@ func (xl xlObjects) getObject(ctx context.Context, bucket, object string, startO
 	// Read metadata associated with the object from all disks.
 	metaArr, errs := readAllXLMetadata(ctx, xl.getDisks(), bucket, object)
 
+	volume.DiskOperationDuration.With(prometheus.Labels{"operation_type": "get_read_xl_meta"}).Observe(time.Since(before).Seconds())
+	before = time.Now()
 	// get Quorum for this object
 	readQuorum, _, err := objectQuorumFromMeta(ctx, xl, metaArr, errs)
 	if err != nil {
@@ -365,6 +380,7 @@ func (xl xlObjects) getObject(ctx context.Context, bucket, object string, startO
 		partOffset = 0
 	} // End of read all parts loop.
 
+	volume.DiskOperationDuration.With(prometheus.Labels{"operation_type": "get_read_xl_data"}).Observe(time.Since(before).Seconds())
 	// Return success.
 	return nil
 }
@@ -539,24 +555,31 @@ func rename(ctx context.Context, disks []StorageAPI, srcBucket, srcEntry, dstBuc
 // writes `xl.json` which carries the necessary metadata for future
 // object operations.
 func (xl xlObjects) PutObject(ctx context.Context, bucket string, object string, data *PutObjReader, opts ObjectOptions) (objInfo ObjectInfo, err error) {
+	defer func(before time.Time) {
+		volume.DiskOperationDuration.With(prometheus.Labels{"operation_type": "PUT"}).Observe(time.Since(before).Seconds())
+	}(time.Now())
+	before := time.Now()
 	// Validate put object input args.
-	if err = checkPutObjectArgs(ctx, bucket, object, xl, data.Size()); err != nil {
-		return ObjectInfo{}, err
-	}
+	// if err = checkPutObjectArgs(ctx, bucket, object, xl, data.Size()); err != nil {
+	// 	return ObjectInfo{}, err
+	// }
 
 	// Lock the object.
 	objectLock := xl.nsMutex.NewNSLock(bucket, object)
 	if err := objectLock.GetLock(globalObjectTimeout); err != nil {
 		return objInfo, err
 	}
+	volume.DiskOperationDuration.With(prometheus.Labels{"operation_type": "get_lock"}).Observe(time.Since(before).Seconds())
 	defer objectLock.Unlock()
 	return xl.putObject(ctx, bucket, object, data, opts)
 }
 
 // putObject wrapper for xl PutObject
 func (xl xlObjects) putObject(ctx context.Context, bucket string, object string, r *PutObjReader, opts ObjectOptions) (objInfo ObjectInfo, err error) {
+	before := time.Now()
 
 	if globalFileVolumeEnabled && !isMinioMetaBucketName(bucket) {
+		volume.DiskOperationDuration.With(prometheus.Labels{"operation_type": "go_fast"}).Observe(time.Since(before).Seconds())
 		return xl.putObjectFast(ctx, bucket, object, r, opts)
 	}
 

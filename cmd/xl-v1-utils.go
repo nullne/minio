@@ -26,6 +26,8 @@ import (
 	"time"
 
 	"github.com/minio/minio/cmd/logger"
+	"github.com/nullne/didactic-couscous/volume"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/tidwall/gjson"
 )
 
@@ -328,6 +330,9 @@ func readXLMeta(ctx context.Context, disk StorageAPI, bucket string, object stri
 // Reads all `xl.json` metadata as a xlMetaV1 slice.
 // Returns error slice indicating the failed metadata reads.
 func readAllXLMetadata(ctx context.Context, disks []StorageAPI, bucket, object string) ([]xlMetaV1, []error) {
+	defer func(before time.Time) {
+		volume.DiskOperationDuration.With(prometheus.Labels{"operation_type": "read_all_xlmeta"}).Observe(time.Since(before).Seconds())
+	}(time.Now())
 	errs := make([]error, len(disks))
 	metadataArray := make([]xlMetaV1, len(disks))
 	var wg = &sync.WaitGroup{}

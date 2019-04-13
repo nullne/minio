@@ -22,13 +22,20 @@ import (
 	"path"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/minio/minio/cmd/logger"
 	"github.com/minio/minio/pkg/mimedb"
+	"github.com/nullne/didactic-couscous/volume"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 // change the object stortage method
 func (xl xlObjects) putObjectFast(ctx context.Context, bucket string, object string, r *PutObjReader, opts ObjectOptions) (objInfo ObjectInfo, err error) {
+	defer func(before time.Time) {
+		volume.DiskOperationDuration.With(prometheus.Labels{"operation_type": "put"}).Observe(time.Since(before).Seconds())
+	}(time.Now())
+	before := time.Now()
 	data := r.Reader
 
 	// No metadata is set, allocate a new one.
@@ -102,6 +109,8 @@ func (xl xlObjects) putObjectFast(ctx context.Context, bucket string, object str
 		// 	return ObjectInfo{}, toObjectErr(err, bucket, object)
 		// }
 	}
+	volume.DiskOperationDuration.With(prometheus.Labels{"operation_type": "is_object"}).Observe(time.Since(before).Seconds())
+	before = time.Now()
 
 	// Limit the reader to its provided size if specified.
 	var reader io.Reader = data
@@ -223,6 +232,8 @@ func (xl xlObjects) putObjectFast(ctx context.Context, bucket string, object str
 			break
 		}
 	}
+	volume.DiskOperationDuration.With(prometheus.Labels{"operation_type": "erasure"}).Observe(time.Since(before).Seconds())
+	before = time.Now()
 
 	// Save additional erasureMetadata.
 	modTime := UTCNow()
@@ -246,6 +257,7 @@ func (xl xlObjects) putObjectFast(ctx context.Context, bucket string, object str
 	if onlineDisks, err = writeUniqueXLMetadata(ctx, onlineDisks, bucket, object, partsMetadata, writeQuorum); err != nil {
 		return ObjectInfo{}, toObjectErr(err, bucket, object)
 	}
+	volume.DiskOperationDuration.With(prometheus.Labels{"operation_type": "write_meta"}).Observe(time.Since(before).Seconds())
 
 	// Rename the successfully written temporary object to final location.
 	// if _, err = rename(ctx, onlineDisks, minioMetaTmpBucket, tempObj, bucket, object, true, writeQuorum, nil); err != nil {
