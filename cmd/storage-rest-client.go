@@ -35,6 +35,7 @@ import (
 	"github.com/minio/minio/cmd/http"
 	"github.com/minio/minio/cmd/rest"
 	xnet "github.com/minio/minio/pkg/net"
+	"gopkg.in/bufio.v1"
 )
 
 func isNetworkError(err error) bool {
@@ -234,7 +235,15 @@ func (client *storageRESTClient) CreateFile(volume, path string, length int64, r
 	values.Set(storageRESTVolume, volume)
 	values.Set(storageRESTFilePath, path)
 	values.Set(storageRESTLength, strconv.Itoa(int(length)))
-	respBody, err := client.call(storageRESTMethodCreateFile, values, r, length)
+
+	// respBody, err := client.call(storageRESTMethodCreateFile, values, r, length)
+
+	bs, err := ioutil.ReadAll(r)
+	if err != nil {
+		return err
+	}
+	respBody, err := client.call(storageRESTMethodCreateFile, values, bufio.NewBuffer(bs), length)
+
 	defer http.DrainBody(respBody)
 	return err
 }
@@ -288,7 +297,16 @@ func (client *storageRESTClient) ReadFileStream(volume, path string, offset, len
 	if err != nil {
 		return nil, err
 	}
-	return respBody, nil
+	// return respBody, nil
+	bs, err := ioutil.ReadAll(respBody)
+	if err != nil {
+		return nil, err
+	}
+	if err := respBody.Close(); err != nil {
+		return nil, err
+	}
+	return ioutil.NopCloser(bufio.NewBuffer(bs)), nil
+
 }
 
 // ReadFile - reads section of a file.

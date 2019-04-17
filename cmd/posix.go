@@ -38,6 +38,8 @@ import (
 	"github.com/minio/minio/cmd/logger"
 	"github.com/minio/minio/pkg/disk"
 	"github.com/minio/minio/pkg/mountinfo"
+	fv "github.com/nullne/didactic-couscous/volume"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 const (
@@ -1006,6 +1008,7 @@ func (s *posix) ReadFileStream(volume, path string, offset, length int64) (io.Re
 	if err != nil {
 		return nil, err
 	}
+	before := time.Now()
 	// Stat a volume entry.
 	_, err = os.Stat((volumeDir))
 	if err != nil {
@@ -1016,6 +1019,8 @@ func (s *posix) ReadFileStream(volume, path string, offset, length int64) (io.Re
 		}
 		return nil, err
 	}
+
+	fv.DiskOperationDuration.With(prometheus.Labels{"operation_type": "stat_volume"}).Observe(time.Since(before).Seconds())
 
 	// Validate effective path length before reading.
 	filePath := pathJoin(volumeDir, path)

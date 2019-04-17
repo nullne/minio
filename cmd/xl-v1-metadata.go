@@ -157,6 +157,23 @@ type xlMetaV1 struct {
 	Parts []ObjectPartInfo `json:"parts,omitempty"`
 }
 
+// func (m xlMetaV1) MarshalBinary() []byte {
+// 	var data []byte
+//
+// 	//version
+// 	switch m.Version {
+// 	case xlMetaVersion:
+// 		data = append(data, '0')
+// 	case xlMetaVersion100:
+// 		data = append(data, '1')
+// 	}
+// 	return data
+// }
+//
+// func (m *xlMetaV1) UnmarshalBinary(bs []byte) error {
+// 	return nil
+// }
+
 // XL metadata constants.
 const (
 	// XL meta version.

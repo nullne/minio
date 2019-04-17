@@ -86,29 +86,29 @@ func (xl xlObjects) putObjectFast(ctx context.Context, bucket string, object str
 		return ObjectInfo{}, toObjectErr(errInvalidArgument)
 	}
 
-	if xl.isObject(bucket, object) {
-		// Deny if WORM is enabled
-		if globalWORMEnabled {
-			return ObjectInfo{}, ObjectAlreadyExists{Bucket: bucket, Object: object}
-		}
-
-		// delete object
-		xl.deleteObject(ctx, bucket, object, writeQuorum, false)
-
-		// Rename if an object already exists to temporary location.
-		// newUniqueID := mustGetUUID()
-
-		// Delete successfully renamed object.
-		// defer xl.deleteObject(ctx, minioMetaTmpBucket, newUniqueID, writeQuorum, false)
-
-		// NOTE: Do not use online disks slice here: the reason is that existing object should be purged
-		// regardless of `xl.json` status and rolled back in case of errors. Also allow renaming the
-		// existing object if it is not present in quorum disks so users can overwrite stale objects.
-		// _, err = rename(ctx, xl.getDisks(), bucket, object, minioMetaTmpBucket, newUniqueID, true, writeQuorum, []error{errFileNotFound})
-		// if err != nil {
-		// 	return ObjectInfo{}, toObjectErr(err, bucket, object)
-		// }
-	}
+	// if xl.isObject(bucket, object) {
+	// 	// Deny if WORM is enabled
+	// 	if globalWORMEnabled {
+	// 		return ObjectInfo{}, ObjectAlreadyExists{Bucket: bucket, Object: object}
+	// 	}
+	//
+	// 	// delete object
+	// 	xl.deleteObject(ctx, bucket, object, writeQuorum, false)
+	//
+	// 	// Rename if an object already exists to temporary location.
+	// 	// newUniqueID := mustGetUUID()
+	//
+	// 	// Delete successfully renamed object.
+	// 	// defer xl.deleteObject(ctx, minioMetaTmpBucket, newUniqueID, writeQuorum, false)
+	//
+	// 	// NOTE: Do not use online disks slice here: the reason is that existing object should be purged
+	// 	// regardless of `xl.json` status and rolled back in case of errors. Also allow renaming the
+	// 	// existing object if it is not present in quorum disks so users can overwrite stale objects.
+	// 	// _, err = rename(ctx, xl.getDisks(), bucket, object, minioMetaTmpBucket, newUniqueID, true, writeQuorum, []error{errFileNotFound})
+	// 	// if err != nil {
+	// 	// 	return ObjectInfo{}, toObjectErr(err, bucket, object)
+	// 	// }
+	// }
 	volume.DiskOperationDuration.With(prometheus.Labels{"operation_type": "is_object"}).Observe(time.Since(before).Seconds())
 	before = time.Now()
 

@@ -304,6 +304,9 @@ func readXLMetaStat(ctx context.Context, disk StorageAPI, bucket string, object 
 
 // readXLMeta reads `xl.json` and returns back XL metadata structure.
 func readXLMeta(ctx context.Context, disk StorageAPI, bucket string, object string) (xlMeta xlMetaV1, err error) {
+	defer func(before time.Time) {
+		volume.DiskOperationDuration.With(prometheus.Labels{"operation_type": "read_all_xlmeta_single"}).Observe(time.Since(before).Seconds())
+	}(time.Now())
 	// Reads entire `xl.json`.
 	xlMetaBuf, err := disk.ReadAll(bucket, path.Join(object, xlMetaJSONFile))
 	if err != nil {
