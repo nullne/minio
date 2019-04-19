@@ -157,23 +157,6 @@ type xlMetaV1 struct {
 	Parts []ObjectPartInfo `json:"parts,omitempty"`
 }
 
-// func (m xlMetaV1) MarshalBinary() []byte {
-// 	var data []byte
-//
-// 	//version
-// 	switch m.Version {
-// 	case xlMetaVersion:
-// 		data = append(data, '0')
-// 	case xlMetaVersion100:
-// 		data = append(data, '1')
-// 	}
-// 	return data
-// }
-//
-// func (m *xlMetaV1) UnmarshalBinary(bs []byte) error {
-// 	return nil
-// }
-
 // XL metadata constants.
 const (
 	// XL meta version.
@@ -454,7 +437,8 @@ func writeXLMetadata(ctx context.Context, disk StorageAPI, bucket, prefix string
 	jsonFile := path.Join(prefix, xlMetaJSONFile)
 
 	// Marshal json.
-	metadataBytes, err := json.Marshal(&xlMeta)
+	// metadataBytes, err := json.Marshal(&xlMeta)
+	metadataBytes, err := xlMeta.MarshalBinary()
 	if err != nil {
 		logger.LogIf(ctx, err)
 		return err

@@ -21,7 +21,7 @@ import (
 	"net/http"
 
 	"github.com/minio/minio/cmd/logger"
-	"github.com/nullne/didactic-couscous/volume"
+	fv "github.com/nullne/didactic-couscous/volume"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
@@ -168,7 +168,7 @@ func metricsHandler() http.Handler {
 	err := registry.Register(httpRequestsDuration)
 	logger.LogIf(context.Background(), err)
 
-	err = registry.Register(volume.DiskOperationDuration)
+	err = registry.Register(fv.DiskOperationDuration)
 	logger.LogIf(context.Background(), err)
 
 	// err = registry.Register(volume.DiskOperationDuration)
