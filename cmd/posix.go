@@ -900,7 +900,7 @@ func (s *posix) ReadFile(volume, path string, offset int64, buffer []byte, verif
 
 func (s *posix) openFile(volume, path string, mode int) (f *os.File, err error) {
 	defer func(before time.Time) {
-		diskOperationDuration.With(prometheus.Labels{"operation_type": "openFile"}).Observe(time.Since(before).Seconds())
+		diskOperationDuration.With(prometheus.Labels{"operation_type": "posix.openFile"}).Observe(time.Since(before).Seconds())
 	}(time.Now())
 	defer func() {
 		if err == errFaultyDisk {
@@ -1061,7 +1061,7 @@ func (s *posix) ReadFileStream(volume, path string, offset, length int64) (io.Re
 // CreateFile - creates the file.
 func (s *posix) CreateFile(volume, path string, fileSize int64, r io.Reader) (err error) {
 	defer func(before time.Time) {
-		diskOperationDuration.With(prometheus.Labels{"operation_type": "CreateFile"}).Observe(time.Since(before).Seconds())
+		diskOperationDuration.With(prometheus.Labels{"operation_type": "posix.CreateFile"}).Observe(time.Since(before).Seconds())
 	}(time.Now())
 	if fileSize < 0 {
 		return errInvalidArgument
@@ -1133,7 +1133,7 @@ func (s *posix) CreateFile(volume, path string, fileSize int64, r io.Reader) (er
 
 func (s *posix) WriteAll(volume, path string, buf []byte) (err error) {
 	defer func(before time.Time) {
-		diskOperationDuration.With(prometheus.Labels{"operation_type": "WriteAll"}).Observe(time.Since(before).Seconds())
+		diskOperationDuration.With(prometheus.Labels{"operation_type": "posix.WriteAll"}).Observe(time.Since(before).Seconds())
 	}(time.Now())
 	defer func() {
 		if err == errFaultyDisk {
@@ -1194,7 +1194,7 @@ func (s *posix) AppendFile(volume, path string, buf []byte) (err error) {
 // StatFile - get file info.
 func (s *posix) StatFile(volume, path string) (file FileInfo, err error) {
 	defer func(before time.Time) {
-		diskOperationDuration.With(prometheus.Labels{"operation_type": "StatFile"}).Observe(time.Since(before).Seconds())
+		diskOperationDuration.With(prometheus.Labels{"operation_type": "posix.StatFile"}).Observe(time.Since(before).Seconds())
 	}(time.Now())
 	defer func() {
 		if err == errFaultyDisk {
@@ -1296,7 +1296,7 @@ func deleteFile(basePath, deletePath string) error {
 // DeleteFile - delete a file at path.
 func (s *posix) DeleteFile(volume, path string) (err error) {
 	defer func(before time.Time) {
-		diskOperationDuration.With(prometheus.Labels{"operation_type": "DeleteFile"}).Observe(time.Since(before).Seconds())
+		diskOperationDuration.With(prometheus.Labels{"operation_type": "posix.DeleteFile"}).Observe(time.Since(before).Seconds())
 	}(time.Now())
 	defer func() {
 		if err == errFaultyDisk {
@@ -1341,7 +1341,7 @@ func (s *posix) DeleteFile(volume, path string) (err error) {
 // RenameFile - rename source path to destination path atomically.
 func (s *posix) RenameFile(srcVolume, srcPath, dstVolume, dstPath string) (err error) {
 	defer func(before time.Time) {
-		diskOperationDuration.With(prometheus.Labels{"operation_type": "RenameFile"}).Observe(time.Since(before).Seconds())
+		diskOperationDuration.With(prometheus.Labels{"operation_type": "posix.RenameFile"}).Observe(time.Since(before).Seconds())
 	}(time.Now())
 	defer func() {
 		if err == errFaultyDisk {

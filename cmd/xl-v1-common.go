@@ -20,6 +20,9 @@ import (
 	"context"
 	"path"
 	"sync"
+	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 // getLoadBalancedDisks - fetches load balanced (sufficiently randomized) disk slice.
@@ -53,6 +56,9 @@ func (xl xlObjects) parentDirIsObject(ctx context.Context, bucket, parent string
 // isObject - returns `true` if the prefix is an object i.e if
 // `xl.json` exists at the leaf, false otherwise.
 func (xl xlObjects) isObject(bucket, prefix string) (ok bool) {
+	defer func(before time.Time) {
+		diskOperationDuration.With(prometheus.Labels{"operation_type": "statObject"}).Observe(time.Since(before).Seconds())
+	}(time.Now())
 	var errs = make([]error, len(xl.getDisks()))
 	var wg sync.WaitGroup
 	for index, disk := range xl.getDisks() {

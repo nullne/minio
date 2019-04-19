@@ -167,15 +167,12 @@ func (xl xlObjects) GetObjectNInfo(ctx context.Context, bucket, object string, r
 			nsUnlocker = lock.RUnlock
 		}
 	}
-	httpRequestsDetailDuration.With(prometheus.Labels{"request_type": "GET", "step": "2"}).Observe(time.Since(before).Seconds())
-	before = time.Now()
+	diskOperationDuration.With(prometheus.Labels{"operation_type": "GET-getLock"}).Observe(time.Since(before).Seconds())
 
 	if err = checkGetObjArgs(ctx, bucket, object); err != nil {
 		nsUnlocker()
 		return nil, err
 	}
-	httpRequestsDetailDuration.With(prometheus.Labels{"request_type": "GET", "step": "3"}).Observe(time.Since(before).Seconds())
-	before = time.Now()
 
 	// Handler directory request by returning a reader that
 	// returns no bytes.
@@ -191,8 +188,6 @@ func (xl xlObjects) GetObjectNInfo(ctx context.Context, bucket, object string, r
 		}
 		return NewGetObjectReaderFromReader(bytes.NewBuffer(nil), objInfo, nsUnlocker), nil
 	}
-	httpRequestsDetailDuration.With(prometheus.Labels{"request_type": "GET", "step": "4"}).Observe(time.Since(before).Seconds())
-	before = time.Now()
 
 	var objInfo ObjectInfo
 	objInfo, err = xl.getObjectInfo(ctx, bucket, object)
@@ -200,16 +195,12 @@ func (xl xlObjects) GetObjectNInfo(ctx context.Context, bucket, object string, r
 		nsUnlocker()
 		return nil, toObjectErr(err, bucket, object)
 	}
-	httpRequestsDetailDuration.With(prometheus.Labels{"request_type": "GET", "step": "5"}).Observe(time.Since(before).Seconds())
-	before = time.Now()
 
 	fn, off, length, nErr := NewGetObjectReader(rs, objInfo, nsUnlocker)
 	if nErr != nil {
 		return nil, nErr
 	}
 
-	httpRequestsDetailDuration.With(prometheus.Labels{"request_type": "GET", "step": "6"}).Observe(time.Since(before).Seconds())
-	before = time.Now()
 	pr, pw := io.Pipe()
 	go func() {
 		err := xl.getObject(ctx, bucket, object, off, length, pw, "", opts)
@@ -218,8 +209,6 @@ func (xl xlObjects) GetObjectNInfo(ctx context.Context, bucket, object string, r
 	// Cleanup function to cause the go routine above to exit, in
 	// case of incomplete read.
 	pipeCloser := func() { pr.Close() }
-	httpRequestsDetailDuration.With(prometheus.Labels{"request_type": "GET", "step": "7"}).Observe(time.Since(before).Seconds())
-	before = time.Now()
 
 	return fn(pr, h, pipeCloser)
 }
@@ -242,13 +231,9 @@ func (xl xlObjects) GetObject(ctx context.Context, bucket, object string, startO
 
 // getObject wrapper for xl GetObject
 func (xl xlObjects) getObject(ctx context.Context, bucket, object string, startOffset int64, length int64, writer io.Writer, etag string, opts ObjectOptions) error {
-	before := time.Now()
-
 	if err := checkGetObjArgs(ctx, bucket, object); err != nil {
 		return err
 	}
-	httpRequestsDetailDuration.With(prometheus.Labels{"request_type": "GET", "step": "8"}).Observe(time.Since(before).Seconds())
-	before = time.Now()
 
 	// Start offset cannot be negative.
 	if startOffset < 0 {
@@ -271,16 +256,12 @@ func (xl xlObjects) getObject(ctx context.Context, bucket, object string, startO
 
 	// Read metadata associated with the object from all disks.
 	metaArr, errs := readAllXLMetadata(ctx, xl.getDisks(), bucket, object)
-	httpRequestsDetailDuration.With(prometheus.Labels{"request_type": "GET", "step": "9"}).Observe(time.Since(before).Seconds())
-	before = time.Now()
 
 	// get Quorum for this object
 	readQuorum, _, err := objectQuorumFromMeta(ctx, xl, metaArr, errs)
 	if err != nil {
 		return toObjectErr(err, bucket, object)
 	}
-	httpRequestsDetailDuration.With(prometheus.Labels{"request_type": "GET", "step": "10"}).Observe(time.Since(before).Seconds())
-	before = time.Now()
 
 	if reducedErr := reduceReadQuorumErrs(ctx, errs, objectOpIgnoredErrs, readQuorum); reducedErr != nil {
 		return toObjectErr(reducedErr, bucket, object)
@@ -289,15 +270,11 @@ func (xl xlObjects) getObject(ctx context.Context, bucket, object string, startO
 	// List all online disks.
 	onlineDisks, modTime := listOnlineDisks(xl.getDisks(), metaArr, errs)
 
-	httpRequestsDetailDuration.With(prometheus.Labels{"request_type": "GET", "step": "11"}).Observe(time.Since(before).Seconds())
-	before = time.Now()
 	// Pick latest valid metadata.
 	xlMeta, err := pickValidXLMeta(ctx, metaArr, modTime, readQuorum)
 	if err != nil {
 		return err
 	}
-	httpRequestsDetailDuration.With(prometheus.Labels{"request_type": "GET", "step": "12"}).Observe(time.Since(before).Seconds())
-	before = time.Now()
 
 	// Reorder online disks based on erasure distribution order.
 	onlineDisks = shuffleDisks(onlineDisks, xlMeta.Erasure.Distribution)
@@ -321,8 +298,6 @@ func (xl xlObjects) getObject(ctx context.Context, bucket, object string, startO
 	if err != nil {
 		return InvalidRange{startOffset, length, xlMeta.Stat.Size}
 	}
-	httpRequestsDetailDuration.With(prometheus.Labels{"request_type": "GET", "step": "13"}).Observe(time.Since(before).Seconds())
-	before = time.Now()
 
 	// Calculate endOffset according to length
 	endOffset := startOffset
@@ -335,8 +310,6 @@ func (xl xlObjects) getObject(ctx context.Context, bucket, object string, startO
 	if err != nil {
 		return InvalidRange{startOffset, length, xlMeta.Stat.Size}
 	}
-	httpRequestsDetailDuration.With(prometheus.Labels{"request_type": "GET", "step": "14"}).Observe(time.Since(before).Seconds())
-	before = time.Now()
 
 	var totalBytesRead int64
 	erasure, err := NewErasure(ctx, xlMeta.Erasure.DataBlocks, xlMeta.Erasure.ParityBlocks, xlMeta.Erasure.BlockSize)
@@ -387,7 +360,6 @@ func (xl xlObjects) getObject(ctx context.Context, bucket, object string, startO
 		// the remaining parts.
 		partOffset = 0
 	} // End of read all parts loop.
-	httpRequestsDetailDuration.With(prometheus.Labels{"request_type": "GET", "step": "15"}).Observe(time.Since(before).Seconds())
 
 	// Return success.
 	return nil
@@ -462,6 +434,9 @@ func (xl xlObjects) GetObjectInfo(ctx context.Context, bucket, object string, op
 
 // getObjectInfo - wrapper for reading object metadata and constructs ObjectInfo.
 func (xl xlObjects) getObjectInfo(ctx context.Context, bucket, object string) (objInfo ObjectInfo, err error) {
+	defer func(before time.Time) {
+		diskOperationDuration.With(prometheus.Labels{"operation_type": "getObjectInfo"}).Observe(time.Since(before).Seconds())
+	}(time.Now())
 	disks := xl.getDisks()
 
 	// Read metadata associated with the object from all disks.
@@ -517,6 +492,9 @@ func undoRename(disks []StorageAPI, srcBucket, srcEntry, dstBucket, dstEntry str
 // rename - common function that renamePart and renameObject use to rename
 // the respective underlying storage layer representations.
 func rename(ctx context.Context, disks []StorageAPI, srcBucket, srcEntry, dstBucket, dstEntry string, isDir bool, writeQuorum int, ignoredErr []error) ([]StorageAPI, error) {
+	defer func(before time.Time) {
+		diskOperationDuration.With(prometheus.Labels{"operation_type": "rename"}).Observe(time.Since(before).Seconds())
+	}(time.Now())
 	// Initialize sync waitgroup.
 	var wg = &sync.WaitGroup{}
 
@@ -564,26 +542,23 @@ func rename(ctx context.Context, disks []StorageAPI, srcBucket, srcEntry, dstBuc
 // object operations.
 func (xl xlObjects) PutObject(ctx context.Context, bucket string, object string, data *PutObjReader, opts ObjectOptions) (objInfo ObjectInfo, err error) {
 	// Validate put object input args.
-	before := time.Now()
 	if err = checkPutObjectArgs(ctx, bucket, object, xl, data.Size()); err != nil {
 		return ObjectInfo{}, err
 	}
-	httpRequestsDetailDuration.With(prometheus.Labels{"request_type": "PUT", "step": "2"}).Observe(time.Since(before).Seconds())
-	before = time.Now()
 
+	before := time.Now()
 	// Lock the object.
 	objectLock := xl.nsMutex.NewNSLock(bucket, object)
 	if err := objectLock.GetLock(globalObjectTimeout); err != nil {
 		return objInfo, err
 	}
+	diskOperationDuration.With(prometheus.Labels{"operation_type": "PUT-getLock"}).Observe(time.Since(before).Seconds())
 	defer objectLock.Unlock()
-	httpRequestsDetailDuration.With(prometheus.Labels{"request_type": "PUT", "step": "3"}).Observe(time.Since(before).Seconds())
 	return xl.putObject(ctx, bucket, object, data, opts)
 }
 
 // putObject wrapper for xl PutObject
 func (xl xlObjects) putObject(ctx context.Context, bucket string, object string, r *PutObjReader, opts ObjectOptions) (objInfo ObjectInfo, err error) {
-	before := time.Now()
 	data := r.Reader
 
 	uniqueID := mustGetUUID()
@@ -595,8 +570,6 @@ func (xl xlObjects) putObject(ctx context.Context, bucket string, object string,
 
 	// Get parity and data drive count based on storage class metadata
 	dataDrives, parityDrives := getRedundancyCount(opts.UserDefined[amzStorageClass], len(xl.getDisks()))
-	httpRequestsDetailDuration.With(prometheus.Labels{"request_type": "PUT", "step": "4"}).Observe(time.Since(before).Seconds())
-	before = time.Now()
 
 	// we now know the number of blocks this object needs for data and parity.
 	// writeQuorum is dataBlocks + 1
@@ -628,13 +601,8 @@ func (xl xlObjects) putObject(ctx context.Context, bucket string, object string,
 			return ObjectInfo{}, toObjectErr(err, bucket, object)
 		}
 
-		httpRequestsDetailDuration.With(prometheus.Labels{"request_type": "PUT", "step": "5"}).Observe(time.Since(before).Seconds())
-		before = time.Now()
 		return dirObjectInfo(bucket, object, data.Size(), opts.UserDefined), nil
 	}
-
-	httpRequestsDetailDuration.With(prometheus.Labels{"request_type": "PUT", "step": "6"}).Observe(time.Since(before).Seconds())
-	before = time.Now()
 
 	// Validate put object input args.
 	if err = checkPutObjectArgs(ctx, bucket, object, xl, data.Size()); err != nil {
@@ -650,13 +618,9 @@ func (xl xlObjects) putObject(ctx context.Context, bucket string, object string,
 	// Check if an object is present as one of the parent dir.
 	// -- FIXME. (needs a new kind of lock).
 	// -- FIXME (this also causes performance issue when disks are down).
-	httpRequestsDetailDuration.With(prometheus.Labels{"request_type": "PUT", "step": "7"}).Observe(time.Since(before).Seconds())
-	before = time.Now()
 	// if xl.parentDirIsObject(ctx, bucket, path.Dir(object)) {
 	// 	return ObjectInfo{}, toObjectErr(errFileAccessDenied, bucket, object)
 	// }
-	httpRequestsDetailDuration.With(prometheus.Labels{"request_type": "PUT", "step": "8"}).Observe(time.Since(before).Seconds())
-	before = time.Now()
 
 	// Limit the reader to its provided size if specified.
 	var reader io.Reader = data
@@ -673,8 +637,6 @@ func (xl xlObjects) putObject(ctx context.Context, bucket string, object string,
 
 	// Order disks according to erasure distribution
 	onlineDisks := shuffleDisks(xl.getDisks(), partsMetadata[0].Erasure.Distribution)
-	httpRequestsDetailDuration.With(prometheus.Labels{"request_type": "PUT", "step": "9"}).Observe(time.Since(before).Seconds())
-	before = time.Now()
 
 	// Total size of the written object
 	var sizeWritten int64
@@ -701,6 +663,7 @@ func (xl xlObjects) putObject(ctx context.Context, bucket string, object string,
 		buffer = buffer[:xlMeta.Erasure.BlockSize]
 	}
 
+	before := time.Now()
 	// Read data and split into parts - similar to multipart mechanism
 	for partIdx := 1; ; partIdx++ {
 		// Compute part name
@@ -778,8 +741,7 @@ func (xl xlObjects) putObject(ctx context.Context, bucket string, object string,
 			break
 		}
 	}
-	httpRequestsDetailDuration.With(prometheus.Labels{"request_type": "PUT", "step": "10"}).Observe(time.Since(before).Seconds())
-	before = time.Now()
+	diskOperationDuration.With(prometheus.Labels{"operation_type": "erasure_encode"}).Observe(time.Since(before).Seconds())
 
 	// Save additional erasureMetadata.
 	modTime := UTCNow()
@@ -810,8 +772,6 @@ func (xl xlObjects) putObject(ctx context.Context, bucket string, object string,
 		if err != nil {
 			return ObjectInfo{}, toObjectErr(err, bucket, object)
 		}
-		httpRequestsDetailDuration.With(prometheus.Labels{"request_type": "PUT", "step": "11"}).Observe(time.Since(before).Seconds())
-		before = time.Now()
 	}
 
 	// Fill all the necessary metadata.
@@ -826,14 +786,11 @@ func (xl xlObjects) putObject(ctx context.Context, bucket string, object string,
 	if onlineDisks, err = writeUniqueXLMetadata(ctx, onlineDisks, minioMetaTmpBucket, tempObj, partsMetadata, writeQuorum); err != nil {
 		return ObjectInfo{}, toObjectErr(err, bucket, object)
 	}
-	httpRequestsDetailDuration.With(prometheus.Labels{"request_type": "PUT", "step": "12"}).Observe(time.Since(before).Seconds())
-	before = time.Now()
 
 	// Rename the successfully written temporary object to final location.
 	if _, err = rename(ctx, onlineDisks, minioMetaTmpBucket, tempObj, bucket, object, true, writeQuorum, nil); err != nil {
 		return ObjectInfo{}, toObjectErr(err, bucket, object)
 	}
-	httpRequestsDetailDuration.With(prometheus.Labels{"request_type": "PUT", "step": "13"}).Observe(time.Since(before).Seconds())
 
 	// Object info is the same in all disks, so we can pick the first meta
 	// of the first disk
@@ -859,6 +816,9 @@ func (xl xlObjects) putObject(ctx context.Context, bucket string, object string,
 // all the disks in parallel, including `xl.json` associated with the
 // object.
 func (xl xlObjects) deleteObject(ctx context.Context, bucket, object string, writeQuorum int, isDir bool) error {
+	defer func(before time.Time) {
+		diskOperationDuration.With(prometheus.Labels{"operation_type": "deleteObject"}).Observe(time.Since(before).Seconds())
+	}(time.Now())
 	var disks []StorageAPI
 	var err error
 

@@ -425,7 +425,9 @@ func deleteXLMetdata(ctx context.Context, disk StorageAPI, bucket, prefix string
 
 // writeXLMetadata - writes `xl.json` to a single disk.
 func writeXLMetadata(ctx context.Context, disk StorageAPI, bucket, prefix string, xlMeta xlMetaV1) error {
-	before := time.Now()
+	defer func(before time.Time) {
+		diskOperationDuration.With(prometheus.Labels{"operation_type": "writeXLMetadata"}).Observe(time.Since(before).Seconds())
+	}(time.Now())
 	jsonFile := path.Join(prefix, xlMetaJSONFile)
 
 	// Marshal json.
@@ -434,13 +436,10 @@ func writeXLMetadata(ctx context.Context, disk StorageAPI, bucket, prefix string
 		logger.LogIf(ctx, err)
 		return err
 	}
-	httpRequestsDetailDuration.With(prometheus.Labels{"request_type": "PUT", "step": "14"}).Observe(time.Since(before).Seconds())
-	before = time.Now()
 
 	// Persist marshaled data.
 	err = disk.WriteAll(bucket, jsonFile, metadataBytes)
 	logger.LogIf(ctx, err)
-	httpRequestsDetailDuration.With(prometheus.Labels{"request_type": "PUT", "step": "15"}).Observe(time.Since(before).Seconds())
 	return err
 }
 
@@ -475,6 +474,9 @@ func renameXLMetadata(ctx context.Context, disks []StorageAPI, srcBucket, srcEnt
 
 // writeUniqueXLMetadata - writes unique `xl.json` content for each disk in order.
 func writeUniqueXLMetadata(ctx context.Context, disks []StorageAPI, bucket, prefix string, xlMetas []xlMetaV1, quorum int) ([]StorageAPI, error) {
+	defer func(before time.Time) {
+		diskOperationDuration.With(prometheus.Labels{"operation_type": "writeUniqueXLMetadata"}).Observe(time.Since(before).Seconds())
+	}(time.Now())
 	var wg = &sync.WaitGroup{}
 	var mErrs = make([]error, len(disks))
 
