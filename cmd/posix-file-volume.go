@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	fv "github.com/nullne/didactic-couscous/volume"
+	fv "github.com/minio/minio/cmd/volume"
 	"github.com/syndtr/goleveldb/leveldb"
 	"gopkg.in/bufio.v1"
 )

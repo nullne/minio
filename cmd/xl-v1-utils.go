@@ -26,7 +26,7 @@ import (
 	"time"
 
 	"github.com/minio/minio/cmd/logger"
-	fv "github.com/nullne/didactic-couscous/volume"
+	fv "github.com/minio/minio/cmd/volume"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/tidwall/gjson"
 )

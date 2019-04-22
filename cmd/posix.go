@@ -36,9 +36,9 @@ import (
 
 	humanize "github.com/dustin/go-humanize"
 	"github.com/minio/minio/cmd/logger"
+	fv "github.com/minio/minio/cmd/volume"
 	"github.com/minio/minio/pkg/disk"
 	"github.com/minio/minio/pkg/mountinfo"
-	fv "github.com/nullne/didactic-couscous/volume"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
