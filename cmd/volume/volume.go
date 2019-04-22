@@ -120,7 +120,11 @@ func (v *Volume) loadFiles() error {
 		files[id] = fs[i]
 		if !f.isReadOnly() {
 			// fmt.Println("load read only")
-			v.writableFile = fs[i]
+			wf, err := createFile(path.Dir(f.path), uint32(i))
+			if err != nil {
+				return err
+			}
+			v.writableFile = wf
 		}
 	}
 	v.files = files
@@ -132,7 +136,6 @@ func (v *Volume) generateNextID() uint32 {
 	for i, f := range v.files {
 		if f == nil {
 			v.flock.RUnlock()
-			fmt.Println("fuck")
 			return uint32(i)
 		}
 	}

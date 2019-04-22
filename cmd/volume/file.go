@@ -10,6 +10,9 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 var (
@@ -36,7 +39,7 @@ func createFile(dir string, id uint32) (f *file, err error) {
 	f.id = id
 	path := filepath.Join(dir, fmt.Sprintf("%d%s", id, dataFileSuffix))
 	f.path = path
-	f.data, err = os.Create(path)
+	f.data, err = os.OpenFile(path, os.O_WRONLY|os.O_CREATE, 0666)
 	if err != nil {
 		return nil, err
 	}
@@ -72,7 +75,8 @@ func loadFiles(dir string) (fs []*file, err error) {
 			return nil, err
 		}
 		fp := filepath.Join(dir, info.Name())
-		data, err := os.OpenFile(fp, os.O_RDWR, 0666)
+		// data, err := os.OpenFile(fp, os.O_RDONLY|syscall.O_DIRECT, 0666)
+		data, err := DirectReadOnlyOpen(fp, 0666)
 		if err != nil {
 			return nil, err
 		}
@@ -122,6 +126,9 @@ func (f *file) read(offset, size int64) ([]byte, error) {
 
 // return offset where data was written to and error, if any
 func (f *file) write(data []byte) (int64, error) {
+	defer func(before time.Time) {
+		DiskOperationDuration.With(prometheus.Labels{"operation_type": "write"}).Observe(time.Since(before).Seconds())
+	}(time.Now())
 	f.wg.Add(1)
 	defer f.wg.Done()
 
@@ -130,7 +137,9 @@ func (f *file) write(data []byte) (int64, error) {
 		return 0, errReadOnly
 	}
 	// not sure whether this operation can be removed
+	before := time.Now()
 	end, err := f.data.Seek(0, io.SeekEnd)
+	DiskOperationDuration.With(prometheus.Labels{"operation_type": "seek"}).Observe(time.Since(before).Seconds())
 	if err != nil {
 		f.lock.Unlock()
 		return 0, fmt.Errorf("failed to seek volume to the end: %v", err)
