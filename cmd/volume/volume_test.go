@@ -179,6 +179,7 @@ func TestVolumeReadFile(t *testing.T) {
 	rr, err := v.ReadFileStream(key, 5, 6)
 	if err != nil {
 		t.Error(err)
+		return
 	}
 	data4, err := ioutil.ReadAll(rr)
 	if err != nil {

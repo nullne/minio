@@ -132,25 +132,56 @@ func (f *file) isReadOnly() bool {
 func (f *file) readInto(buffer []byte, offset int64) (int64, error) {
 	f.wg.Add(1)
 	defer f.wg.Done()
-	n, err := f.data.ReadAt(buffer, offset)
+	// n, err := f.data.ReadAt(buffer, offset)
+	// if err != nil {
+	// 	if err == io.EOF && n != 0 {
+	// 		return int64(n), io.ErrUnexpectedEOF
+	// 	}
+	// 	return int64(n), err
+	// }
+	// return int64(n), nil
+
+	bs, err := f.read(offset, int64(len(buffer)))
+	copy(buffer, bs)
 	if err != nil {
-		if err == io.EOF && n != 0 {
-			return int64(n), io.ErrUnexpectedEOF
+		return 0, err
+		if err == io.EOF && len(bs) != 0 {
+			return int64(len(bs)), io.ErrUnexpectedEOF
 		}
-		return int64(n), err
 	}
-	return int64(n), nil
+	return int64(len(bs)), nil
+}
+
+func blockSize(n int64, larger bool) int64 {
+	if n%512 == 0 {
+		return n
+	}
+	m := n / 512
+	if larger {
+		return 512 * (m + 1)
+	} else {
+		return 512 * m
+	}
 }
 
 func (f *file) read(offset, size int64) ([]byte, error) {
 	f.wg.Add(1)
 	defer f.wg.Done()
-	bs := make([]byte, size)
-	_, err := f.data.ReadAt(bs, offset)
+	noffset := blockSize(offset, false)
+	nsize := blockSize(size+offset-noffset, true)
+	lag := offset - noffset
+
+	// fmt.Println(nsize, noffset, size, offset)
+	bs := make([]byte, nsize)
+	n, err := f.data.ReadAt(bs, noffset)
+	// fmt.Println(n, size, lag, string(bs))
 	if err != nil {
+		if err == io.EOF && int64(n) >= (size+lag) {
+			return bs[lag : size+lag], nil
+		}
 		return nil, err
 	}
-	return bs, nil
+	return bs[lag : size+lag], nil
 }
 
 // return offset where data was written to and error, if any
