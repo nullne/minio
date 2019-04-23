@@ -154,10 +154,17 @@ func (v *Volume) addFile() (*file, error) {
 	if err != nil {
 		return nil, err
 	}
+	rf, err := createReadOnlyFile(f.path)
+	if err != nil {
+		return nil, err
+	}
 	v.flock.Lock()
-	v.files[id] = f
+	v.files[id] = rf
 	v.flock.Unlock()
 
+	if v.writableFile != nil {
+		v.writableFile.data.Close()
+	}
 	v.writableFile = f
 	return f, nil
 }
@@ -194,15 +201,22 @@ func (v *Volume) getFileToWrite() (*file, error) {
 
 	// loop existed files
 	v.flock.RLock()
-	for i, f := range v.files {
+	for _, f := range v.files {
 		if f == nil {
 			fmt.Println("impossible")
 			continue
 		}
 		if !f.isReadOnly() {
+			wf, err := createFile(path.Dir(f.path), f.id)
 			v.flock.RUnlock()
-			v.writableFile = v.files[i]
-			return v.files[i], nil
+			if err != nil {
+				return nil, err
+			}
+			if v.writableFile != nil {
+				v.writableFile.data.Close()
+			}
+			v.writableFile = wf
+			return wf, nil
 		}
 	}
 	v.flock.RUnlock()

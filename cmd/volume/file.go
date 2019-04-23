@@ -6,6 +6,7 @@ import (
 	"io"
 	"io/ioutil"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -24,9 +25,10 @@ type file struct {
 	id   uint32
 	path string
 
-	data     *os.File
-	lock     sync.RWMutex
-	wg       sync.WaitGroup
+	data *os.File
+	lock sync.RWMutex
+	wg   sync.WaitGroup
+	// means not writable
 	readOnly bool
 }
 
@@ -50,6 +52,32 @@ func createFile(dir string, id uint32) (f *file, err error) {
 	return
 }
 
+func createReadOnlyFile(p string) (f *file, err error) {
+	name := path.Base(p)
+	n := strings.Index(name, dataFileSuffix)
+	if n == -1 {
+		return nil, fmt.Errorf("%s is not a data file", p)
+	}
+	id, err := strconv.Atoi(name[:n])
+	if err != nil {
+		return nil, err
+	}
+	f = new(file)
+	f.id = uint32(id)
+	f.path = p
+	f.data, err = DirectReadOnlyOpen(p, 0666)
+	if err != nil {
+		return nil, err
+	}
+
+	fi, err := f.data.Stat()
+	if err != nil {
+		return nil, err
+	}
+	f.readOnly = fi.Size() > MaxFileSize
+	return
+}
+
 func loadFiles(dir string) (fs []*file, err error) {
 	defer func() {
 		if err != nil {
@@ -70,34 +98,35 @@ func loadFiles(dir string) (fs []*file, err error) {
 		if !strings.HasSuffix(info.Name(), dataFileSuffix) {
 			continue
 		}
-		id, err := strconv.Atoi(strings.TrimRight(info.Name(), dataFileSuffix))
+		f, err := createReadOnlyFile(filepath.Join(dir, info.Name()))
 		if err != nil {
 			return nil, err
 		}
-		fp := filepath.Join(dir, info.Name())
-		// data, err := os.OpenFile(fp, os.O_RDONLY|syscall.O_DIRECT, 0666)
-		data, err := DirectReadOnlyOpen(fp, 0666)
-		if err != nil {
-			return nil, err
-		}
-		fi, err := data.Stat()
-		if err != nil {
-			return nil, err
-		}
-		fs = append(fs, &file{
-			id:       uint32(id),
-			path:     fp,
-			data:     data,
-			readOnly: fi.Size() > MaxFileSize,
-		})
+
+		fs = append(fs, f)
 	}
 	return fs, nil
 }
 
 func (f *file) isReadOnly() bool {
 	f.lock.RLock()
-	defer f.lock.RUnlock()
-	return f.readOnly
+	readOnly := f.readOnly
+	f.lock.RUnlock()
+	if f.readOnly {
+		return true
+	}
+	info, err := f.data.Stat()
+	if err != nil {
+		return true
+	}
+	readOnly = info.Size() >= MaxFileSize
+	if !readOnly {
+		return false
+	}
+	f.lock.Lock()
+	f.readOnly = readOnly
+	f.lock.Unlock()
+	return true
 }
 
 func (f *file) readInto(buffer []byte, offset int64) (int64, error) {
@@ -158,7 +187,7 @@ func (f *file) write(data []byte) (int64, error) {
 		f.lock.Unlock()
 		return 0, err
 	}
-	if end+int64(n) > MaxFileSize {
+	if end+int64(n) >= MaxFileSize {
 		f.readOnly = true
 	}
 	f.lock.Unlock()

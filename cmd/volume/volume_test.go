@@ -24,6 +24,7 @@ func TestVolumeAndFileConcurrently(t *testing.T) {
 	v, err := volume.NewVolume(dir)
 	if err != nil {
 		t.Error(err)
+		return
 	}
 	defer v.Close()
 
@@ -83,6 +84,7 @@ func TestVolumeAndFile(t *testing.T) {
 			v, err := volume.NewVolume(dir)
 			if err != nil {
 				t.Error(err)
+				return
 			}
 			defer v.Close()
 
@@ -136,6 +138,7 @@ func TestVolumeReadFile(t *testing.T) {
 	v, err := volume.NewVolume(dir)
 	if err != nil {
 		t.Error(err)
+		return
 	}
 	defer v.Close()
 
@@ -197,6 +200,7 @@ func TestVolumeList(t *testing.T) {
 	v, err := volume.NewVolume(dir)
 	if err != nil {
 		t.Error(err)
+		return
 	}
 	defer v.Close()
 
