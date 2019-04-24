@@ -17,7 +17,7 @@ import (
 )
 
 var (
-	MaxFileSize int64 = 64 * (1 << 30) //64GB
+	MaxFileSize int64 = 4 * (1 << 30) //64GB
 	errReadOnly error = errors.New("file is read only")
 )
 
@@ -153,14 +153,14 @@ func (f *file) readInto(buffer []byte, offset int64) (int64, error) {
 }
 
 func blockSize(n int64, larger bool) int64 {
-	if n%512 == 0 {
+	if n%4096 == 0 {
 		return n
 	}
-	m := n / 512
+	m := n / 4096
 	if larger {
-		return 512 * (m + 1)
+		return 4096 * (m + 1)
 	} else {
-		return 512 * m
+		return 4096 * m
 	}
 }
 
