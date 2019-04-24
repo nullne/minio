@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/minio/minio/cmd/volume"
 	"gopkg.in/bufio.v1"
@@ -155,7 +156,7 @@ func TestVolumeReadFile(t *testing.T) {
 		t.Error(err)
 		return
 	}
-
+	time.Sleep(time.Second)
 	data2, err := v.ReadAll(key)
 	if err != nil {
 		t.Error(err)
