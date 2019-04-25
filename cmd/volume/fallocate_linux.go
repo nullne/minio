@@ -22,5 +22,6 @@ func Fallocate(fd int, offset int64, len int64) error {
 }
 
 func DirectReadOnlyOpen(name string, perm os.FileMode) (*os.File, error) {
-	return os.OpenFile(name, os.O_RDONLY|syscall.O_DIRECT, perm)
+	return os.OpenFile(name, os.O_RDONLY, perm)
+	// return os.OpenFile(name, os.O_RDONLY|syscall.O_DIRECT, perm)
 }

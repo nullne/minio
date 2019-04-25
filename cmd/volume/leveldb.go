@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/syndtr/goleveldb/leveldb"
+	"github.com/syndtr/goleveldb/leveldb/filter"
 	"github.com/syndtr/goleveldb/leveldb/opt"
 	"github.com/syndtr/goleveldb/leveldb/util"
 )
@@ -64,8 +65,10 @@ func newLevelDBIndex(dir string) (Index, error) {
 	}
 
 	db, err := leveldb.OpenFile(path, &opt.Options{
-		BlockCacheCapacity:  1024 * 1024 * blockCapacity,
-		CompactionTableSize: 1024 * 1024 * compactionTableSize,
+		BlockCacheCapacity:  blockCapacity * opt.MiB,
+		CompactionTableSize: compactionTableSize * opt.MiB,
+		WriteBuffer:         4 * opt.MiB,
+		Filter:              filter.NewBloomFilter(10),
 	})
 	if err != nil {
 		return nil, err
@@ -83,6 +86,14 @@ func newLevelDBIndex(dir string) (Index, error) {
 
 	return &levelDBIndex{db: db}, nil
 }
+
+// func (l *levelDBIndex) stat() {
+// 	var s *leveldb.DBStats
+// 	if err := l.db.Stats(s); err != nil {
+// 		panic(err)
+// 	}
+// 	// fmt.Println(s.
+// }
 
 func (l *levelDBIndex) Get(key string) (fi FileInfo, err error) {
 	data, err := l.db.Get([]byte(key), nil)

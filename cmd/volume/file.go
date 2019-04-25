@@ -167,21 +167,28 @@ func blockSize(n int64, larger bool) int64 {
 func (f *file) read(offset, size int64) ([]byte, error) {
 	f.wg.Add(1)
 	defer f.wg.Done()
-	noffset := blockSize(offset, false)
-	nsize := blockSize(size+offset-noffset, true)
-	lag := offset - noffset
-
-	// fmt.Println(nsize, noffset, size, offset)
-	bs := make([]byte, nsize)
-	n, err := f.data.ReadAt(bs, noffset)
-	// fmt.Println(n, size, lag, string(bs))
+	bs := make([]byte, size)
+	_, err := f.data.ReadAt(bs, offset)
 	if err != nil {
-		if err == io.EOF && int64(n) >= (size+lag) {
-			return bs[lag : size+lag], nil
-		}
 		return nil, err
 	}
-	return bs[lag : size+lag], nil
+	return bs, nil
+
+	// noffset := blockSize(offset, false)
+	// nsize := blockSize(size+offset-noffset, true)
+	// lag := offset - noffset
+	//
+	// // fmt.Println(nsize, noffset, size, offset)
+	// bs := make([]byte, nsize)
+	// n, err := f.data.ReadAt(bs, noffset)
+	// // fmt.Println(n, size, lag, string(bs))
+	// if err != nil {
+	// 	if err == io.EOF && int64(n) >= (size+lag) {
+	// 		return bs[lag : size+lag], nil
+	// 	}
+	// 	return nil, err
+	// }
+	// return bs[lag : size+lag], nil
 }
 
 // return offset where data was written to and error, if any
