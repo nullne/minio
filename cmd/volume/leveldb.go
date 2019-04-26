@@ -7,14 +7,11 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/syndtr/goleveldb/leveldb"
-	"github.com/syndtr/goleveldb/leveldb/filter"
-	"github.com/syndtr/goleveldb/leveldb/opt"
-	"github.com/syndtr/goleveldb/leveldb/util"
+	"github.com/jmhodges/levigo"
 )
 
 type levelDBIndex struct {
-	db *leveldb.DB
+	db *levigo.DB
 }
 
 // level db params
@@ -63,13 +60,21 @@ func newLevelDBIndex(dir string) (Index, error) {
 	} else if err != nil {
 		return nil, err
 	}
+	opt := levigo.NewOptions()
+	opt.SetCreateIfMissing(true)
+	cache := levigo.NewLRUCache(1024 * 1024 * 1024 * 10)
+	opt.SetCache(cache)
+	opt.SetMaxOpenFiles(10000)
 
-	db, err := leveldb.OpenFile(path, &opt.Options{
-		BlockCacheCapacity:  blockCapacity * opt.MiB,
-		CompactionTableSize: compactionTableSize * opt.MiB,
-		WriteBuffer:         4 * opt.MiB,
-		Filter:              filter.NewBloomFilter(10),
-	})
+	db, err := levigo.Open(path, opt)
+	fmt.Println(db)
+
+	// db, err := leveldb.OpenFile(path, &opt.Options{
+	// 	BlockCacheCapacity:  blockCapacity * opt.MiB,
+	// 	CompactionTableSize: compactionTableSize * opt.MiB,
+	// 	WriteBuffer:         4 * opt.MiB,
+	// 	Filter:              filter.NewBloomFilter(10),
+	// })
 	if err != nil {
 		return nil, err
 	}
@@ -96,7 +101,9 @@ func newLevelDBIndex(dir string) (Index, error) {
 // }
 
 func (l *levelDBIndex) Get(key string) (fi FileInfo, err error) {
-	data, err := l.db.Get([]byte(key), nil)
+	opt := levigo.NewReadOptions()
+	opt.SetFillCache(true)
+	data, err := l.db.Get(opt, []byte(key))
 	if err != nil {
 		return fi, err
 	}
@@ -113,15 +120,17 @@ func (l *levelDBIndex) Get(key string) (fi FileInfo, err error) {
 }
 
 func (l *levelDBIndex) Set(key string, fi FileInfo) error {
+	opt := levigo.NewWriteOptions()
 	if strings.HasSuffix(key, "xl.json") {
-		return l.db.Put([]byte(key), fi.data, nil)
+		return l.db.Put(opt, []byte(key), fi.data)
 	}
 	data := fi.MarshalBinary()
-	return l.db.Put([]byte(key), data, nil)
+	return l.db.Put(opt, []byte(key), data)
 }
 
 func (l *levelDBIndex) Delete(key string) error {
-	return l.db.Delete([]byte(key), nil)
+	return nil
+	// return l.db.Delete([]byte(key), nil)
 }
 
 func (l *levelDBIndex) List(keyPrefix string) ([]string, error) {
@@ -135,36 +144,37 @@ func (l *levelDBIndex) ListN(keyPrefix string, count int) ([]string, error) {
 // count less than 0  means all
 // @TODO may need cache to speed up
 func (l *levelDBIndex) listN(keyPrefix string, count int) ([]string, error) {
-	iter := l.db.NewIterator(util.BytesPrefix([]byte(keyPrefix)), nil)
-	var entries []string
-
-	for iter.Next() {
-		if count == 0 {
-			break
-		}
-		key := string(iter.Key())
-		entry := subDir(key, keyPrefix)
-		if entry == "" {
-			continue
-		}
-		found := false
-		for _, e := range entries {
-			if e == entry {
-				found = true
-				break
-			}
-		}
-		if found {
-			continue
-		}
-		entries = append(entries, entry)
-		count--
-	}
-	iter.Release()
-	if err := iter.Error(); err != nil {
-		return nil, err
-	}
-	return entries, nil
+	return nil, nil
+	// iter := l.db.NewIterator(util.BytesPrefix([]byte(keyPrefix)), nil)
+	// var entries []string
+	//
+	// for iter.Next() {
+	// 	if count == 0 {
+	// 		break
+	// 	}
+	// 	key := string(iter.Key())
+	// 	entry := subDir(key, keyPrefix)
+	// 	if entry == "" {
+	// 		continue
+	// 	}
+	// 	found := false
+	// 	for _, e := range entries {
+	// 		if e == entry {
+	// 			found = true
+	// 			break
+	// 		}
+	// 	}
+	// 	if found {
+	// 		continue
+	// 	}
+	// 	entries = append(entries, entry)
+	// 	count--
+	// }
+	// iter.Release()
+	// if err := iter.Error(); err != nil {
+	// 	return nil, err
+	// }
+	// return entries, nil
 }
 
 // p1		p2	 	result
@@ -198,5 +208,6 @@ func firstPart(p string) string {
 }
 
 func (l *levelDBIndex) Close() error {
-	return l.db.Close()
+	l.db.Close()
+	return nil
 }
