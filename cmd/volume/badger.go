@@ -5,14 +5,13 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/dgraph-io/badger"
 )
 
 type badgerIndex struct {
-	db *badger.DB
-	ch chan brequest
+	db    *badger.DB
+	batch *badger.WriteBatch
 }
 
 func newBadgerIndex(dir string) (Index, error) {
@@ -33,57 +32,10 @@ func newBadgerIndex(dir string) (Index, error) {
 	}
 
 	b := badgerIndex{
-		db: db,
-		ch: make(chan brequest),
+		db:    db,
+		batch: db.NewWriteBatch(),
 	}
-	go b.batchWrite()
 	return &b, nil
-}
-
-type brequest struct {
-	key  []byte
-	data []byte
-	resp chan error
-}
-
-func (b *badgerIndex) batchWrite() {
-	wb := b.db.NewWriteBatch()
-	ticker := time.NewTicker(10 * time.Millisecond)
-	count := 0
-
-	for {
-		select {
-		case <-ticker.C:
-		case req := <-b.ch:
-			req.resp <- wb.Set(req.key, req.data, 0)
-			if count < 100 {
-				continue
-			}
-		}
-		go func(wb *badger.WriteBatch) {
-			if err := wb.Flush(); err != nil {
-				fmt.Println(err)
-			}
-		}(wb)
-		wb = b.db.NewWriteBatch()
-		count = 0
-	}
-	// for req := range b.ch {
-	// 	req.resp <- wb.Set(req.key, req.data, 0)
-	// 	select {
-	// 	case <-ticker.C:
-	// 	default:
-	// 		if count < 100 {
-	// 			continue
-	// 		}
-	// 	}
-	// 	if err := wb.Flush(); err != nil {
-	// 		fmt.Println(err)
-	// 	}
-	// 	fmt.Println("************")
-	// 	wb = b.db.NewWriteBatch()
-	// 	count = 0
-	// }
 }
 
 func (b *badgerIndex) Get(key string) (fi FileInfo, err error) {
@@ -120,18 +72,7 @@ func (b *badgerIndex) Set(key string, fi FileInfo) error {
 	} else {
 		data = fi.MarshalBinary()
 	}
-	// b.batch.Set([]byte(key), data, 0)
-	req := brequest{
-		key:  []byte(key),
-		data: data,
-		resp: make(chan error),
-	}
-	b.ch <- req
-	return <-req.resp
-	// return b.db.Update(func(txn *badger.Txn) error {
-	// 	err := txn.Set([]byte(key), data)
-	// 	return err
-	// })
+	return b.batch.Set([]byte(key), data, 0)
 }
 
 func (b *badgerIndex) Delete(key string) error {
@@ -147,5 +88,8 @@ func (b *badgerIndex) ListN(keyPrefix string, count int) ([]string, error) {
 }
 
 func (b *badgerIndex) Close() error {
+	if err := b.batch.Flush(); err != nil {
+		fmt.Println("failed to flush badger", err)
+	}
 	return b.db.Close()
 }
