@@ -67,7 +67,6 @@ func newLevelDBIndex(dir string) (Index, error) {
 	opt.SetMaxOpenFiles(10000)
 
 	db, err := levigo.Open(path, opt)
-	fmt.Println(db)
 
 	// db, err := leveldb.OpenFile(path, &opt.Options{
 	// 	BlockCacheCapacity:  blockCapacity * opt.MiB,
@@ -109,21 +108,21 @@ func (l *levelDBIndex) Get(key string) (fi FileInfo, err error) {
 	}
 	fi.fileName = key
 
-	if strings.HasSuffix(fi.fileName, "xl.json") {
-		fi.data = data
-		fi.size = uint64(len(data))
-		// fi.modTime = time.Now()
-		return
-	}
+	// if strings.HasSuffix(fi.fileName, "xl.json") {
+	// 	fi.data = data
+	// 	fi.size = uint64(len(data))
+	// 	// fi.modTime = time.Now()
+	// 	return
+	// }
 	err = fi.UnmarshalBinary(data)
 	return
 }
 
 func (l *levelDBIndex) Set(key string, fi FileInfo) error {
 	opt := levigo.NewWriteOptions()
-	if strings.HasSuffix(key, "xl.json") {
-		return l.db.Put(opt, []byte(key), fi.data)
-	}
+	// if strings.HasSuffix(key, "xl.json") {
+	// 	return l.db.Put(opt, []byte(key), fi.data)
+	// }
 	data := fi.MarshalBinary()
 	return l.db.Put(opt, []byte(key), data)
 }

@@ -142,7 +142,7 @@ func TestVolumeReadFile(t *testing.T) {
 	}
 	defer v.Close()
 
-	key := "key"
+	key := "key.json"
 	data := []byte("0123456789")
 	r := bufio.NewBuffer(data)
 	if err := v.WriteAll(key, 10, r); err != nil {
