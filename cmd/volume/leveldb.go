@@ -2,29 +2,32 @@ package volume
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
+	"time"
 
-	"github.com/jmhodges/levigo"
+	"github.com/syndtr/goleveldb/leveldb"
+	"github.com/syndtr/goleveldb/leveldb/filter"
+	"github.com/syndtr/goleveldb/leveldb/opt"
 )
 
 type levelDBIndex struct {
-	db *levigo.DB
+	db *leveldb.DB
 }
 
 // level db params
 var (
-	blockCapacity       = 8
-	compactionTableSize = 2
+	levelDBCache = 16
+	levelDBRoot  = "/"
 )
 
 func init() {
 	defer func() {
-		fmt.Printf("set leveldb compaction table size to %vm\n", compactionTableSize)
+		fmt.Printf("set leveldb cache usage to %vm\n", levelDBCache)
 	}()
-	s := os.Getenv("MINIO_LEVELDB_COMPACTION_SIZE")
+	s := os.Getenv("MINIO_LEVELDB_CACHE")
 	if s == "" {
 		return
 	}
@@ -32,26 +35,22 @@ func init() {
 	if err != nil {
 		return
 	}
-	compactionTableSize = i
+	levelDBCache = i
 }
 
 func init() {
 	defer func() {
-		fmt.Printf("set leveldb block cache to %vm\n", blockCapacity)
+		fmt.Printf("set leveldb root to %v\n", levelDBRoot)
 	}()
-	s := os.Getenv("MINIO_LEVELDB_BLOCK")
+	s := os.Getenv("MINIO_LEVELDB_ROOT")
 	if s == "" {
 		return
 	}
-	i, err := strconv.Atoi(s)
-	if err != nil {
-		return
-	}
-	blockCapacity = i
+	levelDBRoot = s
 }
 
 func newLevelDBIndex(dir string) (Index, error) {
-	path := filepath.Join("/var/minio/leveldb", dir, "index")
+	path := filepath.Join(levelDBRoot, dir, "index")
 	// path := filepath.Join("/tmp/leveldb", dir, "index")
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		if err := os.MkdirAll(path, 0755); err != nil {
@@ -60,23 +59,42 @@ func newLevelDBIndex(dir string) (Index, error) {
 	} else if err != nil {
 		return nil, err
 	}
-	opt := levigo.NewOptions()
-	opt.SetCreateIfMissing(true)
-	cache := levigo.NewLRUCache(1024 * 1024 * 1024 * 10)
-	opt.SetCache(cache)
-	opt.SetMaxOpenFiles(10000)
 
-	db, err := levigo.Open(path, opt)
-
-	// db, err := leveldb.OpenFile(path, &opt.Options{
-	// 	BlockCacheCapacity:  blockCapacity * opt.MiB,
-	// 	CompactionTableSize: compactionTableSize * opt.MiB,
-	// 	WriteBuffer:         4 * opt.MiB,
-	// 	Filter:              filter.NewBloomFilter(10),
-	// })
+	db, err := leveldb.OpenFile(path, &opt.Options{
+		// CompactionTableSize: compactionTableSize * opt.MiB,
+		BlockCacheCapacity: levelDBCache * opt.MiB / 2,
+		WriteBuffer:        levelDBCache * opt.MiB / 4,
+		Filter:             filter.NewBloomFilter(10),
+	})
 	if err != nil {
 		return nil, err
 	}
+	go func() {
+		ticker := time.NewTicker(30 * time.Minute)
+		defer ticker.Stop()
+		properties := []string{
+			"leveldb.stats",
+			"leveldb.iostats",
+			"leveldb.writedelay",
+			"leveldb.sstables",
+			"leveldb.blockpool",
+			"leveldb.cachedblock",
+			"leveldb.openedtables",
+			"leveldb.alivesnaps",
+			"leveldb.aliveiters",
+		}
+		for _ = range ticker.C {
+			log.Println("\n\n", path)
+			for _, p := range properties {
+				value, err := db.GetProperty(p)
+				if err != nil {
+					continue
+				}
+				log.Printf("%s: %s \n", p, value)
+			}
+			log.Println(path, "\n\n")
+		}
+	}()
 
 	// iter := db.NewIterator(nil, nil)
 	// for iter.Next() {
@@ -100,9 +118,7 @@ func newLevelDBIndex(dir string) (Index, error) {
 // }
 
 func (l *levelDBIndex) Get(key string) (fi FileInfo, err error) {
-	opt := levigo.NewReadOptions()
-	opt.SetFillCache(true)
-	data, err := l.db.Get(opt, []byte(key))
+	data, err := l.db.Get([]byte(key), nil)
 	if err != nil {
 		return fi, err
 	}
@@ -119,12 +135,12 @@ func (l *levelDBIndex) Get(key string) (fi FileInfo, err error) {
 }
 
 func (l *levelDBIndex) Set(key string, fi FileInfo) error {
-	opt := levigo.NewWriteOptions()
+	// opt := levigo.NewWriteOptions()
 	// if strings.HasSuffix(key, "xl.json") {
 	// 	return l.db.Put(opt, []byte(key), fi.data)
 	// }
 	data := fi.MarshalBinary()
-	return l.db.Put(opt, []byte(key), data)
+	return l.db.Put([]byte(key), data, nil)
 }
 
 func (l *levelDBIndex) Delete(key string) error {
@@ -176,37 +192,6 @@ func (l *levelDBIndex) listN(keyPrefix string, count int) ([]string, error) {
 	// return entries, nil
 }
 
-// p1		p2	 	result
-// a/b/c 	        a/
-// a                a
-// a/b/c  	a       b/
-// aa/b/c 	a
-func subDir(p1, p2 string) string {
-	if p2 == "" {
-		return firstPart(p1)
-	}
-	if p1 == p2 {
-		return p1
-	}
-	if p2[len(p2)-1] != '/' {
-		p2 += "/"
-	}
-	if !strings.HasPrefix(p1, p2) {
-		return ""
-	}
-	return firstPart(p1[len(p2):])
-}
-
-// p never starts with slash
-func firstPart(p string) string {
-	idx := strings.Index(p, "/")
-	if idx == -1 {
-		return p
-	}
-	return p[:idx+1]
-}
-
 func (l *levelDBIndex) Close() error {
-	l.db.Close()
-	return nil
+	return l.db.Close()
 }
