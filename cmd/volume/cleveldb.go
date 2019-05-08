@@ -62,7 +62,7 @@ func newCLevelDBIndex(dir string) (Index, error) {
 	}
 	opt := levigo.NewOptions()
 	opt.SetCreateIfMissing(true)
-	cache := levigo.NewLRUCache(1024 * 1024 * 1024 * 10)
+	cache := levigo.NewLRUCache(1024 * 1024 * 1024 * 2)
 	opt.SetCache(cache)
 	opt.SetMaxOpenFiles(10000)
 

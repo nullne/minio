@@ -22,10 +22,11 @@ func newRocksDBIndex(dir string) (Index, error) {
 		return nil, err
 	}
 	bbto := gorocksdb.NewDefaultBlockBasedTableOptions()
-	bbto.SetBlockCache(gorocksdb.NewLRUCache(3 << 30))
+	bbto.SetBlockCache(gorocksdb.NewLRUCache(2 << 30))
 	opts := gorocksdb.NewDefaultOptions()
 	opts.SetBlockBasedTableFactory(bbto)
 	opts.SetCreateIfMissing(true)
+	opts.SetMaxOpenFiles(10000)
 
 	db, err := gorocksdb.OpenDb(opts, path)
 	if err != nil {

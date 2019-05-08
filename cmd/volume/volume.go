@@ -72,7 +72,7 @@ func NewVolume(dir string) (v *Volume, err error) {
 	// 	}
 	// }
 
-	v.index, err = newLevelDBIndex(dir)
+	v.index, err = newCLevelDBIndex(dir)
 	if err != nil {
 		return nil, err
 	}
