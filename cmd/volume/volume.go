@@ -76,7 +76,7 @@ func NewVolume(dir string) (v *Volume, err error) {
 	// 	}
 	// }
 
-	v.index, err = newLevelDBIndex(dir)
+	v.index, err = newRocksDBIndex(dir)
 	if err != nil {
 		return nil, err
 	}
