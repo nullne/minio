@@ -10,6 +10,8 @@ import (
 
 type rocksDBIndex struct {
 	db *gorocksdb.DB
+	wo *gorocksdb.WriteOptions
+	ro *gorocksdb.ReadOptions
 }
 
 func newRocksDBIndex(dir string) (Index, error) {
@@ -33,19 +35,23 @@ func newRocksDBIndex(dir string) (Index, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &rocksDBIndex{db: db}, nil
+	return &rocksDBIndex{
+		db: db,
+		wo: gorocksdb.NewDefaultWriteOptions(),
+		ro: gorocksdb.NewDefaultReadOptions(),
+	}, nil
 }
 
 func (db *rocksDBIndex) Get(key string) (fi FileInfo, err error) {
-	opt := gorocksdb.NewDefaultReadOptions()
-	value, err := db.db.Get(opt, []byte(key))
+	value, err := db.db.Get(db.ro, []byte(key))
 	if err != nil {
 		return fi, err
 	}
 	defer value.Free()
 
 	fi.fileName = key
-	data := value.Data()
+	data := make([]byte, value.Size())
+	copy(data, value.Data())
 
 	if strings.HasSuffix(fi.fileName, "xl.json") {
 		fi.data = data
@@ -58,12 +64,11 @@ func (db *rocksDBIndex) Get(key string) (fi FileInfo, err error) {
 }
 
 func (db *rocksDBIndex) Set(key string, fi FileInfo) error {
-	opt := gorocksdb.NewDefaultWriteOptions()
 	if strings.HasSuffix(key, "xl.json") {
-		return db.db.Put(opt, []byte(key), fi.data)
+		return db.db.Put(db.wo, []byte(key), fi.data)
 	}
 	data := fi.MarshalBinary()
-	return db.db.Put(opt, []byte(key), data)
+	return db.db.Put(db.wo, []byte(key), data)
 }
 
 func (db *rocksDBIndex) Delete(key string) error {
@@ -80,5 +85,7 @@ func (db *rocksDBIndex) ListN(keyPrefix string, count int) ([]string, error) {
 
 func (db *rocksDBIndex) Close() error {
 	db.db.Close()
+	db.ro.Destroy()
+	db.wo.Destroy()
 	return nil
 }
