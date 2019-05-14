@@ -24,10 +24,19 @@ func newRocksDBIndex(dir string) (Index, error) {
 	} else if err != nil {
 		return nil, err
 	}
-	bbto := gorocksdb.NewDefaultBlockBasedTableOptions()
-	bbto.SetBlockCache(gorocksdb.NewLRUCache(2 << 30))
 	opts := gorocksdb.NewDefaultOptions()
-	opts.SetBlockBasedTableFactory(bbto)
+
+	// plain
+	opts.SetPlainTableFactory(0, 10, 0.75, 16)
+	pt := gorocksdb.NewFixedPrefixTransform(8)
+	opts.SetPrefixExtractor(pt)
+
+	// blocked
+	// bbto := gorocksdb.NewDefaultBlockBasedTableOptions()
+	// bbto.SetBlockCache(gorocksdb.NewLRUCache(2 << 30))
+	// bbto.SetFilterPolicy(gorocksdb.NewBloomFilter(10))
+	// opts.SetBlockBasedTableFactory(bbto)
+
 	opts.SetCreateIfMissing(true)
 	opts.SetMaxOpenFiles(10000)
 
