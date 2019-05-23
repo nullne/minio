@@ -1,8 +1,10 @@
 package volume
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/tecbot/gorocksdb"
@@ -14,8 +16,52 @@ type rocksDBIndex struct {
 	ro *gorocksdb.ReadOptions
 }
 
+var (
+	rocksdbRoot = "/var/minio/rocksdb"
+	blockCache  = 64
+	directRead  = false
+)
+
+func init() {
+	defer func() {
+		fmt.Printf("enable rocks db direct read: %v\n", directRead)
+	}()
+	// change to root, and change the minio config too
+	s := os.Getenv("MINIO_ROCKS_DB_DIRECT_READ")
+	if s == "on" {
+		directRead = true
+	}
+}
+
+func init() {
+	defer func() {
+		fmt.Printf("set the rocks db root to %v\n", rocksdbRoot)
+	}()
+	// change to root, and change the minio config too
+	s := os.Getenv("MINIO_ROCKS_DB_PATH")
+	if s == "" {
+		return
+	}
+	rocksdbRoot = s
+}
+
+func init() {
+	defer func() {
+		fmt.Printf("set rocksdb block cache to %vm\n", blockCache)
+	}()
+	s := os.Getenv("MINIO_ROCKSDB_BLOCK_CACHE")
+	if s == "" {
+		return
+	}
+	i, err := strconv.Atoi(s)
+	if err != nil {
+		return
+	}
+	blockCache = i
+}
+
 func newRocksDBIndex(dir string) (Index, error) {
-	path := filepath.Join("/var/minio/rocksdb", dir, "index")
+	path := filepath.Join(rocksdbRoot, dir, "index")
 	// path := filepath.Join("/tmp/leveldb", dir, "index")
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		if err := os.MkdirAll(path, 0755); err != nil {
@@ -25,17 +71,20 @@ func newRocksDBIndex(dir string) (Index, error) {
 		return nil, err
 	}
 	opts := gorocksdb.NewDefaultOptions()
+	if directRead {
+		opts.SetUseDirectReads(true)
+	}
 
 	// plain
-	opts.SetPlainTableFactory(0, 10, 0.75, 16)
-	pt := gorocksdb.NewFixedPrefixTransform(8)
-	opts.SetPrefixExtractor(pt)
+	// opts.SetPlainTableFactory(0, 10, 0.75, 16)
+	// pt := gorocksdb.NewFixedPrefixTransform(8)
+	// opts.SetPrefixExtractor(pt)
 
 	// blocked
-	// bbto := gorocksdb.NewDefaultBlockBasedTableOptions()
-	// bbto.SetBlockCache(gorocksdb.NewLRUCache(2 << 30))
+	bbto := gorocksdb.NewDefaultBlockBasedTableOptions()
+	bbto.SetBlockCache(gorocksdb.NewLRUCache(blockCache << 20))
 	// bbto.SetFilterPolicy(gorocksdb.NewBloomFilter(10))
-	// opts.SetBlockBasedTableFactory(bbto)
+	opts.SetBlockBasedTableFactory(bbto)
 
 	opts.SetCreateIfMissing(true)
 	opts.SetMaxOpenFiles(10000)

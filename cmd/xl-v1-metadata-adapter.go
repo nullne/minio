@@ -7,6 +7,66 @@ import (
 	"github.com/minio/minio/cmd/pb"
 )
 
+// var (
+// 	// append and DON'T change the order
+// 	metaKey = []string{
+// 		"content-type",
+// 		"X-Amz-Meta-Minio-Cluster-Id",
+// 	}
+// 	contentType = []string{
+// 		"application/octet-stream",
+// 		"image/gif",
+// 		"image/jpeg",
+// 		"image/tiff",
+// 		"image/webp",
+// 		"image/x-icon",
+// 		"image/svg+xml",
+// 		"audio/aac",
+// 		"audio/midi",
+// 		"audio/ogg",
+// 		"audio/x-wav",
+// 		"audio/webm",
+// 		"audio/3gpp",
+// 		"audio/3gpp2",
+// 		"video/mpeg",
+// 		"video/ogg",
+// 		"video/x-msvideo",
+// 		"video/webm",
+// 		"video/3gpp",
+// 		"video/3gpp2",
+// 	}
+// )
+
+//
+// func slimMap(m string) map[string]string {
+// 	ans := make(map[string]string, len(m))
+// 	for k, v := range m {
+// 		for i, vv := range metaKey {
+// 			if vv == k {
+// 				k = fmt.Sprint(i)
+// 				break
+// 			}
+// 		}
+// 		if k == "content-type" {
+// 			for i, vv := range contentType {
+// 				if vv == v {
+// 					v = fmt.Sprint(i)
+// 					break
+// 				}
+// 			}
+// 		}
+// 		ans[k] = v
+// 	}
+// 	return ans
+// }
+//
+// func fatMap(m string) map[string]string {
+// 	ans := make(map[string]string, len(m))
+// 	for k, v := range m {
+// 	}
+// 	return ans
+// }
+
 func (m xlMetaV1) MarshalBinary() ([]byte, error) {
 	mm := pb.XlMetaV1{}
 	switch m.Version {
