@@ -17,12 +17,11 @@ import (
 )
 
 var (
-	MaxFileSize int64 = 4 * (1 << 30) //64GB
 	errReadOnly error = errors.New("file is read only")
 )
 
 type file struct {
-	id   uint32
+	id   int32
 	path string
 
 	data *os.File
@@ -30,13 +29,15 @@ type file struct {
 	wg   sync.WaitGroup
 	// means not writable
 	readOnly bool
+	directIO bool
 }
 
 const (
-	dataFileSuffix = ".data"
+	MaxFileSize    int64 = 4 << 20 //4GB
+	dataFileSuffix       = ".data"
 )
 
-func createFile(dir string, id uint32) (f *file, err error) {
+func createFile(dir string, id int32) (f *file, err error) {
 	f = new(file)
 	f.id = id
 	path := filepath.Join(dir, fmt.Sprintf("%d%s", id, dataFileSuffix))
@@ -52,7 +53,7 @@ func createFile(dir string, id uint32) (f *file, err error) {
 	return
 }
 
-func createReadOnlyFile(p string) (f *file, err error) {
+func openFileToRead(p string) (f *file, err error) {
 	name := path.Base(p)
 	n := strings.Index(name, dataFileSuffix)
 	if n == -1 {
@@ -63,7 +64,7 @@ func createReadOnlyFile(p string) (f *file, err error) {
 		return nil, err
 	}
 	f = new(file)
-	f.id = uint32(id)
+	f.id = int32(id)
 	f.path = p
 	f.data, err = DirectReadOnlyOpen(p, 0666)
 	if err != nil {
@@ -98,7 +99,7 @@ func loadFiles(dir string) (fs []*file, err error) {
 		if !strings.HasSuffix(info.Name(), dataFileSuffix) {
 			continue
 		}
-		f, err := createReadOnlyFile(filepath.Join(dir, info.Name()))
+		f, err := openFileToRead(filepath.Join(dir, info.Name()))
 		if err != nil {
 			return nil, err
 		}
@@ -109,8 +110,9 @@ func loadFiles(dir string) (fs []*file, err error) {
 }
 
 func (f *file) isReadOnly() bool {
+	var readOnly bool
 	f.lock.RLock()
-	readOnly := f.readOnly
+	readOnly = f.readOnly
 	f.lock.RUnlock()
 	if f.readOnly {
 		return true
@@ -129,86 +131,39 @@ func (f *file) isReadOnly() bool {
 	return true
 }
 
-func (f *file) readInto(buffer []byte, offset int64) (int64, error) {
-	f.wg.Add(1)
-	defer f.wg.Done()
-	// n, err := f.data.ReadAt(buffer, offset)
-	// if err != nil {
-	// 	if err == io.EOF && n != 0 {
-	// 		return int64(n), io.ErrUnexpectedEOF
-	// 	}
-	// 	return int64(n), err
-	// }
-	// return int64(n), nil
-
-	bs, err := f.read(offset, int64(len(buffer)))
-	copy(buffer, bs)
-	if err != nil {
-		return 0, err
-		if err == io.EOF && len(bs) != 0 {
-			return int64(len(bs)), io.ErrUnexpectedEOF
-		}
-	}
-	return int64(len(bs)), nil
+func (f *file) setReadOnly() {
+	f.lock.Lock()
+	f.readOnly = true
+	f.lock.Unlock()
 }
 
-func blockSize(n int64, larger bool) int64 {
-	if n%4096 == 0 {
-		return n
-	}
-	m := n / 4096
-	if larger {
-		return 4096 * (m + 1)
-	} else {
-		return 4096 * m
-	}
-}
-
-func (f *file) read(offset, size int64) ([]byte, error) {
-	f.wg.Add(1)
-	defer f.wg.Done()
-	bs := make([]byte, size)
-	_, err := f.data.ReadAt(bs, offset)
-	if err != nil {
-		return nil, err
-	}
-	return bs, nil
-
-	// noffset := blockSize(offset, false)
-	// nsize := blockSize(size+offset-noffset, true)
-	// lag := offset - noffset
-	//
-	// // fmt.Println(nsize, noffset, size, offset)
-	// bs := make([]byte, nsize)
-	// n, err := f.data.ReadAt(bs, noffset)
-	// // fmt.Println(n, size, lag, string(bs))
-	// if err != nil {
-	// 	if err == io.EOF && int64(n) >= (size+lag) {
-	// 		return bs[lag : size+lag], nil
-	// 	}
-	// 	return nil, err
-	// }
-	// return bs[lag : size+lag], nil
-}
-
-// return offset where data was written to and error, if any
-func (f *file) write(data []byte) (int64, error) {
+func (f *file) read(buffer []byte, offset int64) (int64, error) {
 	defer func(before time.Time) {
-		DiskOperationDuration.With(prometheus.Labels{"operation_type": "write"}).Observe(time.Since(before).Seconds())
+		DiskOperationDuration.With(prometheus.Labels{"operation_type": "fileVolume-read"}).Observe(time.Since(before).Seconds())
 	}(time.Now())
 	f.wg.Add(1)
 	defer f.wg.Done()
 
-	f.lock.Lock()
-	if f.readOnly {
+	n, err := f.data.ReadAt(buffer, offset)
+	if err == io.EOF {
+		err = io.ErrUnexpectedEOF
+	}
+	return int64(n), err
+}
+
+// no concurrent use
+func (f *file) write(data []byte) (int64, error) {
+	defer func(before time.Time) {
+		DiskOperationDuration.With(prometheus.Labels{"operation_type": "fileVolume-write"}).Observe(time.Since(before).Seconds())
+	}(time.Now())
+	f.wg.Add(1)
+	defer f.wg.Done()
+
+	if f.isReadOnly() {
 		return 0, errReadOnly
 	}
-	// not sure whether this operation can be removed
-	before := time.Now()
 	end, err := f.data.Seek(0, io.SeekEnd)
-	DiskOperationDuration.With(prometheus.Labels{"operation_type": "seek"}).Observe(time.Since(before).Seconds())
 	if err != nil {
-		f.lock.Unlock()
 		return 0, fmt.Errorf("failed to seek volume to the end: %v", err)
 	}
 
@@ -222,14 +177,11 @@ func (f *file) write(data []byte) (int64, error) {
 	}(f.data, end)
 	n, err := f.data.Write(data)
 	if err != nil {
-		f.lock.Unlock()
 		return 0, err
 	}
 	if end+int64(n) >= MaxFileSize {
-		f.readOnly = true
+		f.setReadOnly()
 	}
-	f.lock.Unlock()
-
 	return end, nil
 }
 

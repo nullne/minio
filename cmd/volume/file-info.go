@@ -9,12 +9,13 @@ import (
 )
 
 type FileInfo struct {
-	fileName     string
-	volumeID     uint32
-	offset, size uint64
-	isDir        bool
-	modTime      time.Time
-	properties   properties
+	fileName string
+	volumeID uint32
+	offset   uint32
+	size     uint32
+	isDir    bool
+	modTime  time.Time
+	// properties properties
 
 	data []byte
 }
@@ -55,41 +56,21 @@ func (f FileInfo) Sys() interface{} {
 }
 
 func (f FileInfo) MarshalBinary() []byte {
-	data := make([]byte, 32)
-	binary.BigEndian.PutUint64(data[0:8], f.offset)
-	binary.BigEndian.PutUint64(data[8:16], f.size)
-	binary.BigEndian.PutUint64(data[16:24], uint64(f.modTime.UnixNano()))
-	binary.BigEndian.PutUint32(data[24:28], f.volumeID)
-	binary.BigEndian.PutUint32(data[28:32], f.properties.Marshal())
-
+	data := make([]byte, 20)
+	binary.BigEndian.PutUint32(data[0:4], f.volumeID)
+	binary.BigEndian.PutUint32(data[4:8], f.offset)
+	binary.BigEndian.PutUint32(data[8:12], f.size)
+	binary.BigEndian.PutUint64(data[12:20], uint64(f.modTime.UnixNano()))
 	return data
 }
 
 func (f *FileInfo) UnmarshalBinary(data []byte) error {
-	if len(data) != 32 {
+	if len(data) != 20 {
 		return errors.New("invalid length")
 	}
-	f.offset = binary.BigEndian.Uint64(data[0:8])
-	f.size = binary.BigEndian.Uint64(data[8:16])
-	f.modTime = time.Unix(0, int64(binary.BigEndian.Uint64(data[16:24])))
-	f.volumeID = binary.BigEndian.Uint32(data[24:28])
-	f.properties.Unmarshal(binary.BigEndian.Uint32(data[28:32]))
+	f.volumeID = binary.BigEndian.Uint32(data[0:4])
+	f.offset = binary.BigEndian.Uint32(data[4:8])
+	f.size = binary.BigEndian.Uint32(data[8:12])
+	f.modTime = time.Unix(0, int64(binary.BigEndian.Uint64(data[12:20])))
 	return nil
-}
-
-type properties struct {
-	deleted bool
-}
-
-func (p properties) Marshal() uint32 {
-	var ans uint32
-	if p.deleted {
-		ans |= (1 << 0)
-	}
-	return ans
-}
-
-func (p *properties) Unmarshal(data uint32) {
-	val := data & (1 << 0)
-	p.deleted = (val > 0)
 }

@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	"github.com/tecbot/gorocksdb"
@@ -16,53 +15,27 @@ type rocksDBIndex struct {
 	ro *gorocksdb.ReadOptions
 }
 
-var (
-	rocksdbRoot = "/var/minio/rocksdb"
-	blockCache  = 64
-	directRead  = false
-)
+type RocksDBOptions struct {
+	Root       string
+	BackupRoot string
+	BackupCron string
 
-func init() {
-	defer func() {
-		fmt.Printf("enable rocks db direct read: %v\n", directRead)
-	}()
-	// change to root, and change the minio config too
-	s := os.Getenv("MINIO_ROCKS_DB_DIRECT_READ")
-	if s == "on" {
-		directRead = true
+	DirectRead   bool
+	BloomFilter  bool
+	MaxOpenFiles int
+	BlockCache   int // MB
+}
+
+func (opt *RocksDBOptions) setDefaultIfEmpty() {
+	if opt.MaxOpenFiles == 0 {
+		opt.MaxOpenFiles = 1000
 	}
 }
 
-func init() {
-	defer func() {
-		fmt.Printf("set the rocks db root to %v\n", rocksdbRoot)
-	}()
-	// change to root, and change the minio config too
-	s := os.Getenv("MINIO_ROCKS_DB_PATH")
-	if s == "" {
-		return
-	}
-	rocksdbRoot = s
-}
-
-func init() {
-	defer func() {
-		fmt.Printf("set rocksdb block cache to %vm\n", blockCache)
-	}()
-	s := os.Getenv("MINIO_ROCKSDB_BLOCK_CACHE")
-	if s == "" {
-		return
-	}
-	i, err := strconv.Atoi(s)
-	if err != nil {
-		return
-	}
-	blockCache = i
-}
-
-func newRocksDBIndex(dir string) (Index, error) {
-	path := filepath.Join(rocksdbRoot, dir, "index")
-	// path := filepath.Join("/tmp/leveldb", dir, "index")
+func NewRocksDBIndex(dir string, opt RocksDBOptions) (Index, error) {
+	opt.setDefaultIfEmpty()
+	path := filepath.Join(opt.Root, dir, "index")
+	fmt.Println(path)
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		if err := os.MkdirAll(path, 0755); err != nil {
 			return nil, err
@@ -70,24 +43,25 @@ func newRocksDBIndex(dir string) (Index, error) {
 	} else if err != nil {
 		return nil, err
 	}
+
+	// set rocksdb options
 	opts := gorocksdb.NewDefaultOptions()
-	if directRead {
+	if opt.DirectRead {
 		opts.SetUseDirectReads(true)
 	}
-
-	// plain
-	// opts.SetPlainTableFactory(0, 10, 0.75, 16)
-	// pt := gorocksdb.NewFixedPrefixTransform(8)
-	// opts.SetPrefixExtractor(pt)
-
-	// blocked
 	bbto := gorocksdb.NewDefaultBlockBasedTableOptions()
-	bbto.SetBlockCache(gorocksdb.NewLRUCache(blockCache << 20))
-	// bbto.SetFilterPolicy(gorocksdb.NewBloomFilter(10))
+	if opt.BlockCache == 0 {
+		bbto.SetNoBlockCache(true)
+	} else {
+		bbto.SetBlockCache(gorocksdb.NewLRUCache(opt.BlockCache << 20))
+	}
+	if opt.BloomFilter {
+		bbto.SetFilterPolicy(gorocksdb.NewBloomFilter(10))
+	}
 	opts.SetBlockBasedTableFactory(bbto)
 
 	opts.SetCreateIfMissing(true)
-	opts.SetMaxOpenFiles(10000)
+	opts.SetMaxOpenFiles(opt.MaxOpenFiles)
 
 	db, err := gorocksdb.OpenDb(opts, path)
 	if err != nil {
@@ -111,9 +85,9 @@ func (db *rocksDBIndex) Get(key string) (fi FileInfo, err error) {
 	data := make([]byte, value.Size())
 	copy(data, value.Data())
 
-	if strings.HasSuffix(fi.fileName, "xl.json") {
+	if strings.HasSuffix(fi.fileName, xlJSONFile) {
 		fi.data = data
-		fi.size = uint64(len(data))
+		fi.size = uint32(len(data))
 		// fi.modTime = time.Now()
 		return
 	}
@@ -122,7 +96,7 @@ func (db *rocksDBIndex) Get(key string) (fi FileInfo, err error) {
 }
 
 func (db *rocksDBIndex) Set(key string, fi FileInfo) error {
-	if strings.HasSuffix(key, "xl.json") {
+	if strings.HasSuffix(key, xlJSONFile) {
 		return db.db.Put(db.wo, []byte(key), fi.data)
 	}
 	data := fi.MarshalBinary()

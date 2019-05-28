@@ -2,6 +2,7 @@ package volume_test
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"fmt"
 	"io/ioutil"
@@ -16,12 +17,12 @@ import (
 )
 
 func TestVolumeAndFileConcurrently(t *testing.T) {
-	volume.MaxFileSize = (1 << 30)
-	dir, _ := ioutil.TempDir("/tmp", "nullne_test_volume_")
+	dir, _ := ioutil.TempDir("/tmp", "volume_")
 	// fmt.Println(dir)
 	defer os.RemoveAll(dir)
 
-	v, err := volume.NewVolume(dir)
+	index, err := volume.NewRocksDBIndex(dir, volume.RocksDBOptions{})
+	v, err := volume.NewVolume(context.Background(), dir, index)
 	if err != nil {
 		t.Error(err)
 		return
@@ -75,21 +76,22 @@ func TestVolumeAndFileConcurrently(t *testing.T) {
 }
 
 func TestVolumeAndFile(t *testing.T) {
-	volume.MaxFileSize = (1 << 10)
-	dir, _ := ioutil.TempDir("/tmp", "nullne_test_volume_")
+	dir, _ := ioutil.TempDir("/tmp", "volume_")
 	// fmt.Println(dir)
 	defer os.RemoveAll(dir)
 	for idx := 0; idx < 3; idx++ {
 		func() {
-			v, err := volume.NewVolume(dir)
+			index, err := volume.NewRocksDBIndex(dir, volume.RocksDBOptions{})
+			v, err := volume.NewVolume(context.Background(), dir, index)
 			if err != nil {
 				t.Error(err)
 				return
 			}
 			defer v.Close()
 
-			_, err = volume.NewVolume(dir)
-			if err != volume.ErrLockFileExisted {
+			_, err = volume.NewVolume(context.Background(), dir, index)
+			// _, err = volume.NewVolume(context.Background(), dir)
+			if err == nil {
 				t.Error("should not init twice ")
 			}
 
@@ -130,12 +132,12 @@ func TestVolumeAndFile(t *testing.T) {
 }
 
 func TestVolumeReadFile(t *testing.T) {
-	volume.MaxFileSize = (1 << 30)
-	dir, _ := ioutil.TempDir("/tmp", "nullne_test_volume_")
+	dir, _ := ioutil.TempDir("/tmp", "volume_")
 	// fmt.Println(dir)
 	defer os.RemoveAll(dir)
 
-	v, err := volume.NewVolume(dir)
+	index, err := volume.NewRocksDBIndex(dir, volume.RocksDBOptions{})
+	v, err := volume.NewVolume(context.Background(), dir, index)
 	if err != nil {
 		t.Error(err)
 		return
@@ -145,13 +147,13 @@ func TestVolumeReadFile(t *testing.T) {
 	key := "key"
 	data := []byte("0123456789")
 	r := bufio.NewBuffer(data)
-	if err := v.WriteAll(key, 10, r); err != nil {
+	if err := v.WriteAll(key, int64(len(data)), r); err != nil {
 		t.Error(err)
 		return
 	}
 
 	r = bufio.NewBuffer(data)
-	if err := v.WriteAll("another KEY", 10, r); err != nil {
+	if err := v.WriteAll("another KEY", int64(len(data)), r); err != nil {
 		t.Error(err)
 		return
 	}
@@ -193,12 +195,12 @@ func TestVolumeReadFile(t *testing.T) {
 }
 
 func TestVolumeList(t *testing.T) {
-	volume.MaxFileSize = (1 << 30)
-	dir, _ := ioutil.TempDir("/tmp", "nullne_test_volume_")
+	dir, _ := ioutil.TempDir("/tmp", "volume_")
 	// fmt.Println(dir)
 	defer os.RemoveAll(dir)
 
-	v, err := volume.NewVolume(dir)
+	index, err := volume.NewRocksDBIndex(dir, volume.RocksDBOptions{})
+	v, err := volume.NewVolume(context.Background(), dir, index)
 	if err != nil {
 		t.Error(err)
 		return

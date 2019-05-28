@@ -12,9 +12,6 @@ func TestFileInfo(t *testing.T) {
 		offset:   1001,
 		size:     2002,
 		modTime:  now,
-		properties: properties{
-			deleted: false,
-		},
 	}
 
 	bs := fi.MarshalBinary()
@@ -34,8 +31,4 @@ func TestFileInfo(t *testing.T) {
 	if fi2.modTime.UnixNano() != now.UnixNano() {
 		t.Errorf("modTime not equal, got %d, wanna %d", fi2.modTime.UnixNano(), now.UnixNano())
 	}
-	if fi2.properties.deleted != fi.properties.deleted {
-		t.Error("deleted properties not equal")
-	}
-
 }
