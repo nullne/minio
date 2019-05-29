@@ -171,9 +171,6 @@ func metricsHandler() http.Handler {
 	err = registry.Register(fv.DiskOperationDuration)
 	logger.LogIf(context.Background(), err)
 
-	// err = registry.Register(volume.DiskOperationDuration)
-	// logger.LogIf(context.Background(), err)
-
 	err = registry.Register(newMinioCollector())
 	logger.LogIf(context.Background(), err)
 

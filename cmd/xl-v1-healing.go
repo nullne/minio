@@ -361,6 +361,9 @@ func (xl xlObjects) healObject(ctx context.Context, bucket string, object string
 		}
 		partsMetadata[i] = newXLMetaFromXLMeta(latestMeta)
 	}
+	if globalFileVolumeEnabled && !isMinioMetaBucketName(bucket) {
+		return xl.healObjectFast(ctx, bucket, object, result, latestMeta, latestDisks, outDatedDisks, partsMetadata, disksToHealCount)
+	}
 
 	// We write at temporary location and then rename to final location.
 	tmpID := mustGetUUID()

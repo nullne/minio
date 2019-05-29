@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -36,7 +37,11 @@ func addFileVolume(path string) error {
 		return addFileVolume(path)
 	}
 
-	vol, err := fv.NewVolume(path)
+	index, err := fv.NewRocksDBIndex(path, fv.RocksDBOptions{
+		Root:        globalRocksDBRoot,
+		BloomFilter: globalRocksDBBloomFilter,
+	})
+	vol, err := fv.NewVolume(context.Background(), path, index)
 	globalFileVolumes.init.Delete(path)
 	if err != nil {
 		return err

@@ -266,7 +266,9 @@ var (
 	GlobalGatewaySSE gatewaySSE
 
 	// Add new variable global values here.
-	globalFileVolumeEnabled bool
+	globalFileVolumeEnabled  bool
+	globalRocksDBRoot        string
+	globalRocksDBBloomFilter bool
 )
 
 // global colors.
