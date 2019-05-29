@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/jmhodges/levigo"
+	"github.com/syndtr/goleveldb/leveldb/util"
 )
 
 type levelDBIndex struct {
@@ -144,37 +145,36 @@ func (l *levelDBIndex) ListN(keyPrefix string, count int) ([]string, error) {
 // count less than 0  means all
 // @TODO may need cache to speed up
 func (l *levelDBIndex) listN(keyPrefix string, count int) ([]string, error) {
-	return nil, nil
-	// iter := l.db.NewIterator(util.BytesPrefix([]byte(keyPrefix)), nil)
-	// var entries []string
-	//
-	// for iter.Next() {
-	// 	if count == 0 {
-	// 		break
-	// 	}
-	// 	key := string(iter.Key())
-	// 	entry := subDir(key, keyPrefix)
-	// 	if entry == "" {
-	// 		continue
-	// 	}
-	// 	found := false
-	// 	for _, e := range entries {
-	// 		if e == entry {
-	// 			found = true
-	// 			break
-	// 		}
-	// 	}
-	// 	if found {
-	// 		continue
-	// 	}
-	// 	entries = append(entries, entry)
-	// 	count--
-	// }
-	// iter.Release()
-	// if err := iter.Error(); err != nil {
-	// 	return nil, err
-	// }
-	// return entries, nil
+	iter := l.db.NewIterator(util.BytesPrefix([]byte(keyPrefix)), nil)
+	var entries []string
+
+	for iter.Next() {
+		if count == 0 {
+			break
+		}
+		key := string(iter.Key())
+		entry := subDir(key, keyPrefix)
+		if entry == "" {
+			continue
+		}
+		found := false
+		for _, e := range entries {
+			if e == entry {
+				found = true
+				break
+			}
+		}
+		if found {
+			continue
+		}
+		entries = append(entries, entry)
+		count--
+	}
+	iter.Release()
+	if err := iter.Error(); err != nil {
+		return nil, err
+	}
+	return entries, nil
 }
 
 // p1		p2	 	result

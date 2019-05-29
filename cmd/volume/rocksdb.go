@@ -1,8 +1,8 @@
 package volume
 
 import (
-	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -35,7 +35,6 @@ func (opt *RocksDBOptions) setDefaultIfEmpty() {
 func NewRocksDBIndex(dir string, opt RocksDBOptions) (Index, error) {
 	opt.setDefaultIfEmpty()
 	path := filepath.Join(opt.Root, dir, "index")
-	fmt.Println(path)
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		if err := os.MkdirAll(path, 0755); err != nil {
 			return nil, err
@@ -108,11 +107,65 @@ func (db *rocksDBIndex) Delete(key string) error {
 }
 
 func (db *rocksDBIndex) List(keyPrefix string) ([]string, error) {
-	return nil, nil
+	return db.listN(keyPrefix, -1)
 }
 
 func (db *rocksDBIndex) ListN(keyPrefix string, count int) ([]string, error) {
-	return nil, nil
+	return db.listN(keyPrefix, count)
+}
+
+func (db *rocksDBIndex) listN(keyPrefix string, count int) ([]string, error) {
+	ro := gorocksdb.NewDefaultReadOptions()
+	ro.SetFillCache(false)
+	defer ro.Destroy()
+	it := db.db.NewIterator(ro)
+	defer it.Close()
+
+	var entries []string
+
+	addToEntries := func(entry string) {
+		found := false
+		for _, e := range entries {
+			if e == entry {
+				found = true
+				break
+			}
+		}
+		if found {
+			return
+		}
+		entries = append(entries, entry)
+		count--
+	}
+
+	it.Seek([]byte(keyPrefix))
+	for count != 0 {
+		if !it.Valid() {
+			break
+		}
+		key := it.Key()
+		entry := subDir(string(key.Data()), keyPrefix)
+		if entry == "" {
+			it.Next()
+			continue
+		}
+		addToEntries(entry)
+
+		key.Free()
+
+		// it.SeekForPrev([]byte(path.Join(keyPrefix + entry)))
+		for {
+			it.Next()
+			if !it.ValidForPrefix([]byte(path.Join(keyPrefix + entry))) {
+				break
+			}
+		}
+	}
+
+	if err := it.Err(); err != nil {
+		return nil, err
+	}
+	return entries, nil
 }
 
 func (db *rocksDBIndex) Close() error {
@@ -120,4 +173,34 @@ func (db *rocksDBIndex) Close() error {
 	db.ro.Destroy()
 	db.wo.Destroy()
 	return nil
+}
+
+// p1		p2	 	result
+// a/b/c 	        a/
+// a                a
+// a/b/c  	a       b/
+// aa/b/c 	a
+func subDir(p1, p2 string) string {
+	if p2 == "" {
+		return firstPart(p1)
+	}
+	if p1 == p2 {
+		return p1
+	}
+	if p2[len(p2)-1] != '/' {
+		p2 += "/"
+	}
+	if !strings.HasPrefix(p1, p2) {
+		return ""
+	}
+	return firstPart(p1[len(p2):])
+}
+
+// p never starts with slash
+func firstPart(p string) string {
+	idx := strings.Index(p, "/")
+	if idx == -1 {
+		return p
+	}
+	return p[:idx+1]
 }

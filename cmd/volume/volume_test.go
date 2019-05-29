@@ -224,4 +224,13 @@ func TestVolumeList(t *testing.T) {
 	if strings.Join(entries, ",") != "1/,2/,3/" {
 		t.Error("wrong list entries", entries)
 	}
+
+	entries, err = v.List("1", -1)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	if strings.Join(entries, " ") != "1.go 2.go 3.go 4.go 5.go 6.go 7.go 8.go 9.go" {
+		t.Error("wrong list entries", entries)
+	}
 }

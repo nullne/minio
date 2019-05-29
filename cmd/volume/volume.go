@@ -127,7 +127,7 @@ func (v *Volume) WriteAll(key string, size int64, r io.Reader) error {
 // /a/b/c/
 // /a/b/d
 func (v *Volume) Delete(path string) error {
-	return nil
+	return v.index.Delete(path)
 }
 
 func (v *Volume) List(path string, count int) ([]string, error) {
