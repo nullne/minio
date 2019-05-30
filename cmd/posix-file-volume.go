@@ -59,7 +59,7 @@ func getFileVolume(path string) (*fv.Volume, error) {
 	return vol.(*fv.Volume), nil
 }
 
-// @TODO check validaty of delete
+// @TODO check validity of delete
 func closeFileVolume() error {
 	globalFileVolumes.volumes.Range(func(key, value interface{}) bool {
 		value.(*fv.Volume).Close()
@@ -109,7 +109,7 @@ func (s *posix) readFileFromFileVolume(volume, path string, offset int64, buffer
 	defer s.pool.Put(bufp)
 
 	h := verifier.algorithm.New()
-	if _, err = io.CopyBuffer(h, r, *bufp); err != nil {
+	if _, err = io.CopyBuffer(h, io.LimitReader(r, offset), *bufp); err != nil {
 		return 0, err
 	}
 
@@ -218,5 +218,9 @@ func (s *posix) listDirFromFileVolume(volume, dirPath string, count int) (entrie
 }
 
 func (s *posix) appendFileToFileVolume(volume, path string, buf []byte) (err error) {
+	return nil
+}
+
+func (s *posix) deleteVolFromFileVolume() error {
 	return nil
 }
