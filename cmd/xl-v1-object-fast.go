@@ -54,26 +54,26 @@ func (xl xlObjects) putObjectFast(ctx context.Context, bucket string, object str
 	// This is a special case with size as '0' and object ends with
 	// a slash separator, we treat it like a valid operation and
 	// return success.
-	// if isObjectDir(object, data.Size()) {
-	// 	// Check if an object is present as one of the parent dir.
-	// 	// -- FIXME. (needs a new kind of lock).
-	// 	// -- FIXME (this also causes performance issue when disks are down).
-	// 	if xl.parentDirIsObject(ctx, bucket, path.Dir(object)) {
-	// 		return ObjectInfo{}, toObjectErr(errFileParentIsFile, bucket, object)
-	// 	}
-	//
-	// 	if err = xl.putObjectDir(ctx, minioMetaTmpBucket, tempObj, writeQuorum); err != nil {
-	// 		return ObjectInfo{}, toObjectErr(err, bucket, object)
-	// 	}
-	//
-	// 	// Rename the successfully written temporary object to final location. Ignore errFileAccessDenied
-	// 	// error because it means that the target object dir exists and we want to be close to S3 specification.
-	// 	if _, err = rename(ctx, xl.getDisks(), minioMetaTmpBucket, tempObj, bucket, object, true, writeQuorum, []error{errFileAccessDenied}); err != nil {
-	// 		return ObjectInfo{}, toObjectErr(err, bucket, object)
-	// 	}
-	//
-	// 	return dirObjectInfo(bucket, object, data.Size(), opts.UserDefined), nil
-	// }
+	if isObjectDir(object, data.Size()) {
+		// Check if an object is present as one of the parent dir.
+		// -- FIXME. (needs a new kind of lock).
+		// -- FIXME (this also causes performance issue when disks are down).
+		if xl.parentDirIsObject(ctx, bucket, path.Dir(object)) {
+			return ObjectInfo{}, toObjectErr(errFileParentIsFile, bucket, object)
+		}
+
+		if err = xl.putObjectDir(ctx, bucket, object, writeQuorum); err != nil {
+			return ObjectInfo{}, toObjectErr(err, bucket, object)
+		}
+
+		// Rename the successfully written temporary object to final location. Ignore errFileAccessDenied
+		// error because it means that the target object dir exists and we want to be close to S3 specification.
+		// if _, err = rename(ctx, xl.getDisks(), minioMetaTmpBucket, tempObj, bucket, object, true, writeQuorum, []error{errFileAccessDenied}); err != nil {
+		// 	return ObjectInfo{}, toObjectErr(err, bucket, object)
+		// }
+
+		return dirObjectInfo(bucket, object, data.Size(), opts.UserDefined), nil
+	}
 
 	// Validate put object input args.
 	// if err = checkPutObjectArgs(ctx, bucket, object, xl, data.Size()); err != nil {
@@ -285,7 +285,7 @@ func (xl xlObjects) putObjectFast(ctx context.Context, bucket string, object str
 }
 
 func (xl xlObjects) deleteObjectFast(ctx context.Context, bucket, object string, writeQuorum int, isDir bool) error {
-	var disks []StorageAPI
+	disks := xl.getDisks()
 	// var err error
 
 	// tmpObj := mustGetUUID()

@@ -495,6 +495,14 @@ func (s *posix) MakeVol(volume string) (err error) {
 		return errInvalidArgument
 	}
 
+	// create a object directory rather than a bucket volume
+	volume = strings.Trim(volume, "/")
+	if idx := strings.Index(volume, "/"); globalFileVolumeEnabled &&
+		!isMinioMetaBucketName(volume) &&
+		idx != -1 {
+		return s.makeDirFromFileVolume(volume[:idx], volume[idx+1:])
+	}
+
 	volumeDir, err := s.getVolDir(volume)
 	if err != nil {
 		return err
@@ -511,7 +519,8 @@ func (s *posix) MakeVol(volume string) (err error) {
 		} else if isSysErrIO(err) {
 			return errFaultyDisk
 		}
-		if globalFileVolumeEnabled && !isMinioMetaBucketName(volume) {
+		if globalFileVolumeEnabled &&
+			!isMinioMetaBucketName(volume) {
 			err = addFileVolume(path.Join(s.diskPath, volume))
 		}
 		return err
@@ -660,6 +669,11 @@ func (s *posix) DeleteVol(volume string) (err error) {
 	if err != nil {
 		return err
 	}
+
+	if globalFileVolumeEnabled && !isMinioMetaBucketName(volume) {
+		return s.deleteVolFromFileVolume(volume)
+	}
+
 	err = os.Remove((volumeDir))
 	if err != nil {
 		switch {
@@ -1340,15 +1354,15 @@ func (s *posix) DeleteFile(volume, path string) (err error) {
 		return err
 	}
 
+	if globalFileVolumeEnabled && !isMinioMetaBucketName(volume) {
+		return s.deleteFromFileVolume(volume, path)
+	}
+
 	// Following code is needed so that we retain "/" suffix if any in
 	// path argument.
 	filePath := pathJoin(volumeDir, path)
 	if err = checkPathLength((filePath)); err != nil {
 		return err
-	}
-
-	if globalFileVolumeEnabled && !isMinioMetaBucketName(volume) {
-		return s.deleteFromFileVolume(volumeDir, filePath)
 	}
 
 	// Delete file and delete parent directory as well if its empty.

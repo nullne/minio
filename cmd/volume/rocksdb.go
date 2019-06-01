@@ -1,10 +1,13 @@
 package volume
 
 import (
+	"bytes"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/tecbot/gorocksdb"
 )
@@ -45,6 +48,7 @@ func NewRocksDBIndex(dir string, opt RocksDBOptions) (Index, error) {
 
 	// set rocksdb options
 	opts := gorocksdb.NewDefaultOptions()
+	defer opts.Destroy()
 	if opt.DirectRead {
 		opts.SetUseDirectReads(true)
 	}
@@ -74,27 +78,29 @@ func NewRocksDBIndex(dir string, opt RocksDBOptions) (Index, error) {
 }
 
 func (db *rocksDBIndex) Get(key string) (fi FileInfo, err error) {
-	value, err := db.db.Get(db.ro, []byte(key))
+	key = pathJoin(key)
+	value, err := db.db.GetBytes(db.ro, []byte(key))
 	if err != nil {
 		return fi, err
 	}
-	defer value.Free()
+	if value == nil {
+		return fi, os.ErrNotExist
+	}
 
 	fi.fileName = key
-	data := make([]byte, value.Size())
-	copy(data, value.Data())
 
 	if strings.HasSuffix(fi.fileName, xlJSONFile) {
-		fi.data = data
-		fi.size = uint32(len(data))
+		fi.data = value
+		fi.size = uint32(len(value))
 		// fi.modTime = time.Now()
 		return
 	}
-	err = fi.UnmarshalBinary(data)
+	err = fi.UnmarshalBinary(value)
 	return
 }
 
 func (db *rocksDBIndex) Set(key string, fi FileInfo) error {
+	key = pathJoin(key)
 	if strings.HasSuffix(key, xlJSONFile) {
 		return db.db.Put(db.wo, []byte(key), fi.data)
 	}
@@ -102,19 +108,79 @@ func (db *rocksDBIndex) Set(key string, fi FileInfo) error {
 	return db.db.Put(db.wo, []byte(key), data)
 }
 
-func (db *rocksDBIndex) Delete(key string) error {
+func (db *rocksDBIndex) Delete(keyPrefix string) error {
+	keyPrefix = pathJoin(keyPrefix)
+	ro := gorocksdb.NewDefaultReadOptions()
+	ro.SetFillCache(false)
+	defer ro.Destroy()
+	it := db.db.NewIterator(ro)
+	defer it.Close()
+
+	var keys [][]byte
+
+	it.Seek([]byte(keyPrefix))
+	for it = it; it.ValidForPrefix([]byte(keyPrefix)); it.Next() {
+		key := it.Key()
+		defer key.Free()
+		remaining := bytes.TrimPrefix(key.Data(), []byte(keyPrefix))
+		remaining = bytes.TrimPrefix(remaining, []byte{'/'})
+		if idx := bytes.Index(remaining, []byte{'/'}); idx != -1 {
+			// dont' delete not empty directory
+			return syscall.ENOTEMPTY
+		}
+		// must copy or something strange happens
+		b := make([]byte, key.Size())
+		copy(b, key.Data())
+		keys = append(keys, b)
+	}
+	if err := it.Err(); err != nil {
+		return err
+	}
+	for _, key := range keys {
+		if err := db.db.Delete(db.wo, key); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
-func (db *rocksDBIndex) List(keyPrefix string) ([]string, error) {
-	return db.listN(keyPrefix, -1)
+// StatPath
+func (db *rocksDBIndex) StatDir(key string) (fi FileInfo, err error) {
+	key = pathJoin(key)
+	if !strings.HasSuffix(key, "/") {
+		key += "/"
+	}
+	ro := gorocksdb.NewDefaultReadOptions()
+	ro.SetFillCache(false)
+	defer ro.Destroy()
+	it := db.db.NewIterator(ro)
+	defer it.Close()
+	it.Seek([]byte(key))
+	if !it.Valid() {
+		return fi, os.ErrNotExist
+	}
+	k := it.Key()
+	defer k.Free()
+	if !bytes.Equal(k.Data(), []byte(key)) {
+		return FileInfo{
+			fileName: key,
+			isDir:    true,
+			// faked time
+			modTime: time.Now(),
+		}, nil
+	}
+
+	v := it.Value()
+	defer v.Free()
+	fi.fileName = key
+	err = fi.UnmarshalBinary(v.Data())
+	return
 }
 
+// count -1 means unlimited
+// listN list count entries under directory keyPrefix, not including itself
 func (db *rocksDBIndex) ListN(keyPrefix string, count int) ([]string, error) {
-	return db.listN(keyPrefix, count)
-}
-
-func (db *rocksDBIndex) listN(keyPrefix string, count int) ([]string, error) {
+	keyPrefix = pathJoin(keyPrefix)
 	ro := gorocksdb.NewDefaultReadOptions()
 	ro.SetFillCache(false)
 	defer ro.Destroy()
@@ -153,7 +219,6 @@ func (db *rocksDBIndex) listN(keyPrefix string, count int) ([]string, error) {
 
 		key.Free()
 
-		// it.SeekForPrev([]byte(path.Join(keyPrefix + entry)))
 		for {
 			it.Next()
 			if !it.ValidForPrefix([]byte(path.Join(keyPrefix + entry))) {
@@ -175,32 +240,40 @@ func (db *rocksDBIndex) Close() error {
 	return nil
 }
 
+func (db *rocksDBIndex) Remove() error {
+	name := db.db.Name()
+	if err := db.Close(); err != nil {
+		return err
+	}
+	opts := gorocksdb.NewDefaultOptions()
+	defer opts.Destroy()
+	return gorocksdb.DestroyDb(name, opts)
+}
+
 // p1		p2	 	result
 // a/b/c 	        a/
-// a                a
+// a               a
+// a       a
 // a/b/c  	a       b/
 // aa/b/c 	a
+// a/b/c 	b
+// p1, p2 will never start with '/'
 func subDir(p1, p2 string) string {
 	if p2 == "" {
-		return firstPart(p1)
+		goto firstPart
 	}
-	if p1 == p2 {
-		return p1
-	}
-	if p2[len(p2)-1] != '/' {
+	if !strings.HasSuffix(p2, "/") {
 		p2 += "/"
 	}
 	if !strings.HasPrefix(p1, p2) {
 		return ""
 	}
-	return firstPart(p1[len(p2):])
-}
-
-// p never starts with slash
-func firstPart(p string) string {
-	idx := strings.Index(p, "/")
+	p1 = strings.TrimPrefix(p1, p2)
+firstPart:
+	p1 = strings.TrimPrefix(p1, "/")
+	idx := strings.Index(p1, "/")
 	if idx == -1 {
-		return p
+		return p1
 	}
-	return p[:idx+1]
+	return p1[:idx+1]
 }

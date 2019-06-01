@@ -12,7 +12,6 @@ import (
 	"time"
 
 	fv "github.com/minio/minio/cmd/volume"
-	"github.com/syndtr/goleveldb/leveldb"
 	"gopkg.in/bufio.v1"
 )
 
@@ -22,6 +21,15 @@ var globalFileVolumes = struct {
 	// only path in init map can be inited
 	init sync.Map
 }{}
+
+func removeFileVolume(path string) *fv.Volume {
+	vol, ok := globalFileVolumes.volumes.Load(path)
+	if !ok {
+		return nil
+	}
+	globalFileVolumes.volumes.Delete(path)
+	return vol.(*fv.Volume)
+}
 
 func addFileVolume(path string) error {
 	// check existence
@@ -71,7 +79,7 @@ func closeFileVolume() error {
 
 func convertError(err error) error {
 	switch err {
-	case leveldb.ErrNotFound, os.ErrNotExist:
+	case os.ErrNotExist:
 		return errFileNotFound
 	default:
 		return err
@@ -158,7 +166,8 @@ func (s *posix) createFileToFileVolume(volume, path string, fileSize int64, r io
 	return vol.WriteAll(path, fileSize, r)
 }
 
-func (s *posix) deleteFromFileVolume(volume, path string) error {
+func (s *posix) deleteFromFileVolume(volume, path string) (err error) {
+	defer func() { err = convertError(err) }()
 	vol, err := getFileVolume(filepath.Join(s.diskPath, volume))
 	if err != nil {
 		return err
@@ -221,6 +230,20 @@ func (s *posix) appendFileToFileVolume(volume, path string, buf []byte) (err err
 	return nil
 }
 
-func (s *posix) deleteVolFromFileVolume() error {
-	return nil
+func (s *posix) deleteVolFromFileVolume(volume string) error {
+	p := filepath.Join(s.diskPath, volume)
+	vol := removeFileVolume(p)
+	if vol == nil {
+		return nil
+	}
+	return vol.Remove()
+}
+
+func (s *posix) makeDirFromFileVolume(volume, path string) error {
+	fmt.Println("volume", volume, "path", path)
+	vol, err := getFileVolume(filepath.Join(s.diskPath, volume))
+	if err != nil {
+		return err
+	}
+	return vol.MakeDir(path)
 }

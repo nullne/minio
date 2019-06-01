@@ -60,15 +60,16 @@ func TestVolumeAndFileConcurrently(t *testing.T) {
 					t.Errorf("%v: bytes not equal, wanna: %v, got: %v", i, len(data), len(bs))
 				}
 
-				// err = v.Delete(file.Info.Fid, "test_file.1")
-				// if err != nil {
-				// 	t.Error(err)
-				// }
-				//
-				// file3, err := v.Get(file.Info.Fid)
-				// if err == nil || file3 != nil {
-				// 	t.Error("delete failed?")
-				// }
+				err = v.Delete(key)
+				if err != nil {
+					t.Error(err)
+					continue
+				}
+
+				file3, err := v.ReadAll(key)
+				if err == nil || file3 != nil {
+					t.Error("delete failed?")
+				}
 			}
 		}()
 	}
@@ -117,15 +118,15 @@ func TestVolumeAndFile(t *testing.T) {
 					t.Error(i, "bytes not equal")
 				}
 
-				// err = v.Delete(file.Info.Fid, "test_file.1")
-				// if err != nil {
-				// 	t.Error(err)
-				// }
-				//
-				// file3, err := v.Get(file.Info.Fid)
-				// if err == nil || file3 != nil {
-				// 	t.Error("delete failed?")
-				// }
+				err = v.Delete(key)
+				if err != nil {
+					t.Error(err)
+				}
+
+				file3, err := v.ReadAll(key)
+				if err == nil || file3 != nil {
+					t.Fatal("delete failed?")
+				}
 			}
 		}()
 	}
@@ -142,7 +143,7 @@ func TestVolumeReadFile(t *testing.T) {
 		t.Error(err)
 		return
 	}
-	defer v.Close()
+	// defer v.Close()
 
 	key := "key"
 	data := []byte("0123456789")
@@ -192,6 +193,9 @@ func TestVolumeReadFile(t *testing.T) {
 		t.Errorf("not equal")
 	}
 
+	if err := v.Remove(); err != nil {
+		t.Error(err)
+	}
 }
 
 func TestVolumeList(t *testing.T) {
@@ -232,5 +236,54 @@ func TestVolumeList(t *testing.T) {
 	}
 	if strings.Join(entries, " ") != "1.go 2.go 3.go 4.go 5.go 6.go 7.go 8.go 9.go" {
 		t.Error("wrong list entries", entries)
+	}
+}
+
+func TestDirOperation(t *testing.T) {
+	dir, _ := ioutil.TempDir("/tmp", "volume_")
+	// fmt.Println(dir)
+	defer os.RemoveAll(dir)
+
+	index, err := volume.NewRocksDBIndex(dir, volume.RocksDBOptions{})
+	v, err := volume.NewVolume(context.Background(), dir, index)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	defer v.Close()
+
+	paths := []string{
+		"/",
+		"/a/b/c/",
+		"/a/b",
+	}
+	for _, p := range paths {
+		if err := v.MakeDir(p); err != nil {
+			t.Error(err)
+			return
+		}
+		fi, err := v.StatDir(p)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		if !fi.IsDir() {
+			t.Error("not a directory")
+			return
+		}
+		entries, err := v.List(p, 1)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		fmt.Println("---------------------", entries)
+		if err := v.Delete(p); err != nil {
+			t.Error(err)
+			return
+		}
+		if _, err := v.StatDir(p); err != os.ErrNotExist {
+			t.Error("should not exist")
+			return
+		}
 	}
 }

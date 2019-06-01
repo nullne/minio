@@ -249,3 +249,10 @@ func (fs *files) close() error {
 	}
 	return fs.flock.release()
 }
+
+func (fs *files) remove() error {
+	if err := fs.close(); err != nil {
+		return err
+	}
+	return os.RemoveAll(fs.dir)
+}

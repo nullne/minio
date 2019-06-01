@@ -3,9 +3,11 @@ package volume
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
+	"path"
 	"strings"
 	"time"
 
@@ -17,6 +19,7 @@ const (
 )
 
 type Volume struct {
+	dir   string
 	index Index
 	files *files
 }
@@ -26,8 +29,9 @@ func NewVolume(ctx context.Context, dir string, index Index) (v *Volume, err err
 		return nil, errors.New("nil index")
 	}
 	v = new(Volume)
+	v.dir = dir
 	v.index = index
-	v.files, err = newFiles(ctx, dir)
+	v.files, err = newFiles(ctx, path.Join(dir, "data"))
 	if err != nil {
 		return nil, err
 	}
@@ -42,6 +46,9 @@ func (v *Volume) ReadAll(key string) ([]byte, error) {
 	info, err := v.index.Get(key)
 	if err != nil {
 		return nil, err
+	}
+	if info.IsDir() {
+		return nil, fmt.Errorf("%s is a directory", key)
 	}
 	if strings.HasSuffix(key, xlJSONFile) {
 		return info.Data(), nil
@@ -67,6 +74,9 @@ func (v *Volume) ReadFile(key string, offset int64, buffer []byte) (int64, error
 	if err != nil {
 		return 0, err
 	}
+	if info.IsDir() {
+		return 0, fmt.Errorf("%s is a directory", key)
+	}
 	file, err := v.files.getFileToRead(info.volumeID)
 	if err != nil {
 		return 0, err
@@ -79,6 +89,9 @@ func (v *Volume) ReadFileStream(key string, offset, length int64) (io.ReadCloser
 	info, err := v.index.Get(key)
 	if err != nil {
 		return nil, err
+	}
+	if info.IsDir() {
+		return nil, fmt.Errorf("%s is a directory", key)
 	}
 	file, err := v.files.getFileToRead(info.volumeID)
 	if err != nil {
@@ -124,38 +137,78 @@ func (v *Volume) WriteAll(key string, size int64, r io.Reader) error {
 	return v.index.Set(key, fi)
 }
 
-// /a/b/c/
-// /a/b/d
+// delete /data/bucket/object will delete all following keys
+// /data1/bucket/object/xl.json
+// /data1/bucket/object/part.1
+// /data1/bucket/object/part.2
+// return error "not empty", if delete /data1/bucket (not the object directory)
 func (v *Volume) Delete(path string) error {
+	if path == "" {
+		return nil
+	}
 	return v.index.Delete(path)
 }
 
-func (v *Volume) List(path string, count int) ([]string, error) {
-	return v.index.ListN(path, count)
+func (v *Volume) List(p string, count int) ([]string, error) {
+	return v.index.ListN(p, count)
 }
 
 func (v *Volume) Stat(key string) (os.FileInfo, error) {
 	return v.index.Get(key)
 }
 
-// @TODO fake dir mod time
+// fake dir mod time
 func (v *Volume) StatDir(p string) (os.FileInfo, error) {
-	entries, err := v.index.ListN(p, 1)
-	if err != nil {
-		return nil, err
-	}
-	if len(entries) != 1 {
+	if p == "" {
 		return nil, os.ErrNotExist
 	}
-	return FileInfo{
-		fileName: entries[0],
+	if !strings.HasSuffix(p, "/") {
+		p += "/"
+	}
+	return v.index.StatDir(p)
+}
+
+func (v *Volume) MakeDir(p string) error {
+	if p == "" {
+		return nil
+	}
+	if !strings.HasSuffix(p, "/") {
+		p += "/"
+	}
+	return v.index.Set(p, FileInfo{
+		fileName: p,
 		isDir:    true,
-		// faked time
-		modTime: time.Now(),
-	}, nil
+		modTime:  time.Now(),
+	})
+}
+
+// remove the volume itself including data and index
+func (v *Volume) Remove() error {
+	if err := v.index.Remove(); err != nil {
+		return err
+	}
+	if err := v.files.remove(); err != nil {
+		return err
+	}
+	return os.RemoveAll(v.dir)
 }
 
 func (v *Volume) Close() error {
 	v.files.close()
 	return v.index.Close()
+}
+
+// pathJoin - like path.Join() but retains trailing "/" of the last element
+func pathJoin(elem ...string) string {
+	trailingSlash := ""
+	if len(elem) > 0 {
+		if strings.HasSuffix(elem[len(elem)-1], "/") {
+			trailingSlash = "/"
+		}
+	}
+	ps := path.Join(elem...)
+	if ps == "/" {
+		return ps
+	}
+	return ps + trailingSlash
 }

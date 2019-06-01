@@ -3,6 +3,7 @@ package volume
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"time"
@@ -18,6 +19,10 @@ type FileInfo struct {
 	// properties properties
 
 	data []byte
+}
+
+func (f FileInfo) String() string {
+	return fmt.Sprintf("%s at volume %v, offset %v, size %v", f.fileName, f.volumeID, f.offset, f.size)
 }
 
 func (f FileInfo) Data() []byte {
