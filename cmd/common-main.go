@@ -419,16 +419,4 @@ func handleCommonEnvVars() {
 		}
 		globalFileVolumeEnabled = bool(fvFlag)
 	}
-
-	if fv := os.Getenv("MINIO_ROCKSDB_ROOT"); fv != "" {
-		globalRocksDBRoot = fv
-	}
-
-	if fv := os.Getenv("MINIO_ROCKSDB_BLOOM_FILTER"); fv != "" {
-		fvFlag, err := ParseBoolFlag(fv)
-		if err != nil {
-			logger.Fatal(uiErrInvalidFileVolumeValue(nil).Msg("Unknown value `%s`", fv), "Invalid MINIO_ROCKSDB_BLOOM_FILTER value in environment variable")
-		}
-		globalRocksDBBloomFilter = bool(fvFlag)
-	}
 }

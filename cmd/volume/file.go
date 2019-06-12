@@ -33,7 +33,7 @@ type file struct {
 }
 
 const (
-	MaxFileSize    int64 = 4 << 20 //4GB
+	MaxFileSize    int64 = 4 << 30 //4GB
 	dataFileSuffix       = ".data"
 )
 

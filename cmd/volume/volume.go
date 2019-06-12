@@ -24,9 +24,10 @@ type Volume struct {
 	files *files
 }
 
-func NewVolume(ctx context.Context, dir string, index Index) (v *Volume, err error) {
-	if index == nil {
-		return nil, errors.New("nil index")
+func NewVolume(ctx context.Context, dir string) (v *Volume, err error) {
+	index, err := NewRocksDBIndex(dir, parseRocksDBOptionsFromEnv())
+	if err != nil {
+		return nil, err
 	}
 	v = new(Volume)
 	v.dir = dir

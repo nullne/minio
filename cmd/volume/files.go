@@ -20,9 +20,8 @@ type fileLock interface {
 }
 
 type files struct {
-	dir string
-	// files []*file
-	files          atomic.Value
+	dir            string
+	files          atomic.Value // []*file
 	ch             chan request
 	writableFile   *file
 	chWritableFile chan *file
@@ -113,11 +112,17 @@ type response struct {
 func (fs *files) prepareFileToWrite(ctx context.Context) {
 	var cur int32 = -1
 	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
 		files := fs.files.Load().([]*file)
 		var fid int32 = -1
 		// loop existed files
 		for i, f := range files {
-			if (f == nil || !f.isReadOnly()) && f.id != cur {
+			if (f == nil || !f.isReadOnly()) && int32(i) != cur {
 				fid = int32(i)
 				break
 			}
@@ -129,12 +134,16 @@ func (fs *files) prepareFileToWrite(ctx context.Context) {
 
 		wr, err := createFile(fs.dir, fid)
 		if err != nil {
+			fmt.Println(err)
+			time.Sleep(time.Second)
 			continue
 		}
 
 		if files[fid] == nil {
 			f, err := openFileToRead(wr.path)
 			if err != nil {
+				fmt.Println(err)
+				time.Sleep(time.Second)
 				continue
 			}
 			files[fid] = f

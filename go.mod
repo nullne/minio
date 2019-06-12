@@ -1,10 +1,9 @@
 module github.com/minio/minio
 
 require (
-	cloud.google.com/go v0.26.0
 	contrib.go.opencensus.io/exporter/ocagent v0.4.7 // indirect
 	contrib.go.opencensus.io/exporter/stackdriver v0.0.0-20180919222851-d1e19f5c23e9 // indirect
-	github.com/Azure/azure-sdk-for-go v26.4.0+incompatible
+	github.com/Azure/azure-sdk-for-go v26.4.0+incompatible // indirect
 	github.com/Azure/go-ansiterm v0.0.0-20170929234023-d6e3b3328b78 // indirect
 	github.com/Azure/go-autorest v11.5.2+incompatible
 	github.com/Microsoft/go-winio v0.4.12 // indirect
@@ -59,7 +58,8 @@ require (
 	github.com/go-stomp/stomp v2.0.2+incompatible // indirect
 	github.com/go-test/deep v1.0.1 // indirect
 	github.com/gocql/gocql v0.0.0-20190301043612-f6df8288f9b4 // indirect
-	github.com/gogo/protobuf v1.2.1 // indirect
+	github.com/gogo/protobuf v1.2.1
+	github.com/golang/protobuf v1.3.0
 	github.com/golang/snappy v0.0.1
 	github.com/gomodule/redigo v0.0.0-20190205135352-43fe51054af5
 	github.com/google/go-github v17.0.0+incompatible // indirect
@@ -88,7 +88,7 @@ require (
 	github.com/hashicorp/nomad v0.8.7 // indirect
 	github.com/hashicorp/raft v1.0.0 // indirect
 	github.com/hashicorp/serf v0.8.2 // indirect
-	github.com/hashicorp/vault v0.0.0-20181121181053-d4367e581fe1
+	github.com/hashicorp/vault v0.0.0-20181121181053-d4367e581fe1 // indirect
 	github.com/hashicorp/vault-plugin-auth-alicloud v0.0.0-20190311155555-98628998247d // indirect
 	github.com/hashicorp/vault-plugin-auth-azure v0.0.0-20190201222632-0af1d040b5b3 // indirect
 	github.com/hashicorp/vault-plugin-auth-centrify v0.0.0-20180816201131-66b0a34a58bf // indirect
@@ -155,7 +155,7 @@ require (
 	github.com/pquerna/otp v1.1.0 // indirect
 	github.com/prometheus/client_golang v0.9.2
 	github.com/rjeczalik/notify v0.9.2
-	github.com/rs/cors v0.0.0-20190116175910-76f58f330d76
+	github.com/rs/cors v0.0.0-20190116175910-76f58f330d76 // indirect
 	github.com/ryanuber/go-glob v1.0.0 // indirect
 	github.com/samuel/go-zookeeper v0.0.0-20180130194729-c4fab1ac1bec // indirect
 	github.com/satori/go.uuid v1.2.0 // indirect
@@ -163,6 +163,7 @@ require (
 	github.com/skyrings/skyring-common v0.0.0-20160324141443-762fd2bfc12e
 	github.com/smartystreets/goconvey v0.0.0-20190306220146-200a235640ff // indirect
 	github.com/streadway/amqp v0.0.0-20160311215503-2e25825abdbd
+	github.com/tecbot/gorocksdb v0.0.0-20190519120508-025c3cf4ffb4
 	github.com/tidwall/gjson v1.1.4
 	github.com/tidwall/sjson v1.0.4
 	github.com/valyala/tcplisten v0.0.0-20161114210144-ceec8f93295a
@@ -173,13 +174,14 @@ require (
 	golang.org/x/sys v0.0.0-20190318195719-6c81ef8f67ca
 	golang.org/x/time v0.0.0-20181108054448-85acf8d2951c
 	golang.org/x/tools v0.0.0-20190318200714-bb1270c20edf // indirect
-	google.golang.org/api v0.0.0-20180916000451-19ff8768a5c0
+	google.golang.org/api v0.0.0-20180916000451-19ff8768a5c0 // indirect
 	google.golang.org/genproto v0.0.0-20180918203901-c3f76f3b92d1 // indirect
 	gopkg.in/Shopify/sarama.v1 v1.10.1
 	gopkg.in/asn1-ber.v1 v1.0.0-20181015200546-f715ec2f112d // indirect
+	gopkg.in/bufio.v1 v1.0.0-20140618132640-567b2bfa514e
 	gopkg.in/gorethink/gorethink.v4 v4.1.0 // indirect
 	gopkg.in/mgo.v2 v2.0.0-20180705113604-9856a29383ce // indirect
-	gopkg.in/olivere/elastic.v5 v5.0.31
+	gopkg.in/olivere/elastic.v5 v5.0.31 // indirect
 	gopkg.in/ory-am/dockertest.v2 v2.2.3 // indirect
 	gopkg.in/square/go-jose.v2 v2.3.0 // indirect
 	gopkg.in/yaml.v2 v2.2.2

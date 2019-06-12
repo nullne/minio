@@ -45,11 +45,7 @@ func addFileVolume(path string) error {
 		return addFileVolume(path)
 	}
 
-	index, err := fv.NewRocksDBIndex(path, fv.RocksDBOptions{
-		Root:        globalRocksDBRoot,
-		BloomFilter: globalRocksDBBloomFilter,
-	})
-	vol, err := fv.NewVolume(context.Background(), path, index)
+	vol, err := fv.NewVolume(context.Background(), path)
 	globalFileVolumes.init.Delete(path)
 	if err != nil {
 		return err

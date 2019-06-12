@@ -21,8 +21,7 @@ func TestVolumeAndFileConcurrently(t *testing.T) {
 	// fmt.Println(dir)
 	defer os.RemoveAll(dir)
 
-	index, err := volume.NewRocksDBIndex(dir, volume.RocksDBOptions{})
-	v, err := volume.NewVolume(context.Background(), dir, index)
+	v, err := volume.NewVolume(context.Background(), dir)
 	if err != nil {
 		t.Error(err)
 		return
@@ -82,15 +81,14 @@ func TestVolumeAndFile(t *testing.T) {
 	defer os.RemoveAll(dir)
 	for idx := 0; idx < 3; idx++ {
 		func() {
-			index, err := volume.NewRocksDBIndex(dir, volume.RocksDBOptions{})
-			v, err := volume.NewVolume(context.Background(), dir, index)
+			v, err := volume.NewVolume(context.Background(), dir)
 			if err != nil {
 				t.Error(err)
 				return
 			}
 			defer v.Close()
 
-			_, err = volume.NewVolume(context.Background(), dir, index)
+			_, err = volume.NewVolume(context.Background(), dir)
 			// _, err = volume.NewVolume(context.Background(), dir)
 			if err == nil {
 				t.Error("should not init twice ")
@@ -137,8 +135,7 @@ func TestVolumeReadFile(t *testing.T) {
 	// fmt.Println(dir)
 	defer os.RemoveAll(dir)
 
-	index, err := volume.NewRocksDBIndex(dir, volume.RocksDBOptions{})
-	v, err := volume.NewVolume(context.Background(), dir, index)
+	v, err := volume.NewVolume(context.Background(), dir)
 	if err != nil {
 		t.Error(err)
 		return
@@ -203,8 +200,7 @@ func TestVolumeList(t *testing.T) {
 	// fmt.Println(dir)
 	defer os.RemoveAll(dir)
 
-	index, err := volume.NewRocksDBIndex(dir, volume.RocksDBOptions{})
-	v, err := volume.NewVolume(context.Background(), dir, index)
+	v, err := volume.NewVolume(context.Background(), dir)
 	if err != nil {
 		t.Error(err)
 		return
@@ -244,8 +240,7 @@ func TestDirOperation(t *testing.T) {
 	// fmt.Println(dir)
 	defer os.RemoveAll(dir)
 
-	index, err := volume.NewRocksDBIndex(dir, volume.RocksDBOptions{})
-	v, err := volume.NewVolume(context.Background(), dir, index)
+	v, err := volume.NewVolume(context.Background(), dir)
 	if err != nil {
 		t.Error(err)
 		return

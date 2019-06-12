@@ -5,10 +5,12 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/tecbot/gorocksdb"
 )
 
@@ -27,6 +29,49 @@ type RocksDBOptions struct {
 	BloomFilter  bool
 	MaxOpenFiles int
 	BlockCache   int // MB
+	RateLimiter  int //MB
+}
+
+func parseRocksDBOptionsFromEnv() RocksDBOptions {
+	opt := RocksDBOptions{}
+	getenv := func(p string) string {
+		s := os.Getenv(p)
+		return strings.TrimSpace(s)
+	}
+
+	if s := getenv("MINIO_ROCKSDB_ROOT"); s != "" {
+		opt.Root = s
+	}
+
+	if s := getenv("MINIO_DIRECT_READ"); s == "on" {
+		opt.DirectRead = true
+	}
+
+	if s := getenv("MINIO_ROCKSDB_BLOOM_FILTER"); s == "on" {
+		opt.BloomFilter = true
+	}
+
+	if s := getenv("MINIO_ROCKSDB_MAX_OPEN_FILES"); s != "" {
+		i, err := strconv.Atoi(s)
+		if err == nil {
+			opt.MaxOpenFiles = i
+		}
+	}
+
+	if s := getenv("MINIO_ROCKSDB_BLOCK_CACHE"); s != "" {
+		i, err := strconv.Atoi(s)
+		if err == nil {
+			opt.BlockCache = i
+		}
+	}
+
+	if s := getenv("MINIO_ROCKSDB_RATE_LIMITER"); s != "" {
+		i, err := strconv.Atoi(s)
+		if err == nil {
+			opt.RateLimiter = i
+		}
+	}
+	return opt
 }
 
 func (opt *RocksDBOptions) setDefaultIfEmpty() {
@@ -61,6 +106,11 @@ func NewRocksDBIndex(dir string, opt RocksDBOptions) (Index, error) {
 	if opt.BloomFilter {
 		bbto.SetFilterPolicy(gorocksdb.NewBloomFilter(10))
 	}
+	if opt.RateLimiter != 0 {
+		limiter := gorocksdb.NewRateLimiter(int64(opt.RateLimiter<<20), 100000, 10)
+		// defer limiter.Destroy()
+		opts.SetRateLimiter(limiter)
+	}
 	opts.SetBlockBasedTableFactory(bbto)
 
 	opts.SetCreateIfMissing(true)
@@ -78,6 +128,9 @@ func NewRocksDBIndex(dir string, opt RocksDBOptions) (Index, error) {
 }
 
 func (db *rocksDBIndex) Get(key string) (fi FileInfo, err error) {
+	defer func(before time.Time) {
+		DiskOperationDuration.With(prometheus.Labels{"operation_type": "RocksDB-Get"}).Observe(time.Since(before).Seconds())
+	}(time.Now())
 	key = pathJoin(key)
 	value, err := db.db.GetBytes(db.ro, []byte(key))
 	if err != nil {
@@ -100,6 +153,9 @@ func (db *rocksDBIndex) Get(key string) (fi FileInfo, err error) {
 }
 
 func (db *rocksDBIndex) Set(key string, fi FileInfo) error {
+	defer func(before time.Time) {
+		DiskOperationDuration.With(prometheus.Labels{"operation_type": "RocksDB-Set"}).Observe(time.Since(before).Seconds())
+	}(time.Now())
 	key = pathJoin(key)
 	if strings.HasSuffix(key, xlJSONFile) {
 		return db.db.Put(db.wo, []byte(key), fi.data)
@@ -109,6 +165,9 @@ func (db *rocksDBIndex) Set(key string, fi FileInfo) error {
 }
 
 func (db *rocksDBIndex) Delete(keyPrefix string) error {
+	defer func(before time.Time) {
+		DiskOperationDuration.With(prometheus.Labels{"operation_type": "RocksDB-Delete"}).Observe(time.Since(before).Seconds())
+	}(time.Now())
 	keyPrefix = pathJoin(keyPrefix)
 	ro := gorocksdb.NewDefaultReadOptions()
 	ro.SetFillCache(false)
@@ -146,6 +205,9 @@ func (db *rocksDBIndex) Delete(keyPrefix string) error {
 
 // StatPath
 func (db *rocksDBIndex) StatDir(key string) (fi FileInfo, err error) {
+	defer func(before time.Time) {
+		DiskOperationDuration.With(prometheus.Labels{"operation_type": "RocksDB-StatDir"}).Observe(time.Since(before).Seconds())
+	}(time.Now())
 	key = pathJoin(key)
 	if !strings.HasSuffix(key, "/") {
 		key += "/"
@@ -180,6 +242,9 @@ func (db *rocksDBIndex) StatDir(key string) (fi FileInfo, err error) {
 // count -1 means unlimited
 // listN list count entries under directory keyPrefix, not including itself
 func (db *rocksDBIndex) ListN(keyPrefix string, count int) ([]string, error) {
+	defer func(before time.Time) {
+		DiskOperationDuration.With(prometheus.Labels{"operation_type": "RocksDB-ListN"}).Observe(time.Since(before).Seconds())
+	}(time.Now())
 	keyPrefix = pathJoin(keyPrefix)
 	ro := gorocksdb.NewDefaultReadOptions()
 	ro.SetFillCache(false)
@@ -241,6 +306,9 @@ func (db *rocksDBIndex) Close() error {
 }
 
 func (db *rocksDBIndex) Remove() error {
+	defer func(before time.Time) {
+		DiskOperationDuration.With(prometheus.Labels{"operation_type": "Remove"}).Observe(time.Since(before).Seconds())
+	}(time.Now())
 	name := db.db.Name()
 	if err := db.Close(); err != nil {
 		return err
