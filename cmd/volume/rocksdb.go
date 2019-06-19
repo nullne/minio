@@ -15,9 +15,10 @@ import (
 )
 
 type rocksDBIndex struct {
-	db *gorocksdb.DB
-	wo *gorocksdb.WriteOptions
-	ro *gorocksdb.ReadOptions
+	db   *gorocksdb.DB
+	wo   *gorocksdb.WriteOptions
+	ro   *gorocksdb.ReadOptions
+	opts *gorocksdb.Options
 }
 
 type RocksDBOptions struct {
@@ -80,20 +81,19 @@ func (opt *RocksDBOptions) setDefaultIfEmpty() {
 	}
 }
 
-func NewRocksDBIndex(dir string, opt RocksDBOptions) (Index, error) {
-	opt.setDefaultIfEmpty()
-	path := filepath.Join(opt.Root, dir, "index")
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		if err := os.MkdirAll(path, 0755); err != nil {
-			return nil, err
-		}
-	} else if err != nil {
-		return nil, err
+func RestoreRocksDBFromBackup(backupPath, p string, opt RocksDBOptions) error {
+	engine, err := gorocksdb.OpenBackupEngine(rocksdbOptions(opt), backupPath)
+	if err != nil {
+		return err
 	}
+	ro := gorocksdb.RestoreOptions{}
+	return engine.RestoreDBFromLatestBackup(p, p, &ro)
+}
 
-	// set rocksdb options
+// set rocksdb options
+func rocksdbOptions(opt RocksDBOptions) *gorocksdb.Options {
+	opt.setDefaultIfEmpty()
 	opts := gorocksdb.NewDefaultOptions()
-	defer opts.Destroy()
 	if opt.DirectRead {
 		opts.SetUseDirectReads(true)
 	}
@@ -115,8 +115,20 @@ func NewRocksDBIndex(dir string, opt RocksDBOptions) (Index, error) {
 
 	opts.SetCreateIfMissing(true)
 	opts.SetMaxOpenFiles(opt.MaxOpenFiles)
+	return opts
+}
 
-	db, err := gorocksdb.OpenDb(opts, path)
+func NewRocksDBIndex(dir string, opt RocksDBOptions) (Index, error) {
+	path := filepath.Join(opt.Root, dir, "index")
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		if err := os.MkdirAll(path, 0755); err != nil {
+			return nil, err
+		}
+	} else if err != nil {
+		return nil, err
+	}
+
+	db, err := gorocksdb.OpenDb(rocksdbOptions(opt), path)
 	if err != nil {
 		return nil, err
 	}
@@ -125,6 +137,19 @@ func NewRocksDBIndex(dir string, opt RocksDBOptions) (Index, error) {
 		wo: gorocksdb.NewDefaultWriteOptions(),
 		ro: gorocksdb.NewDefaultReadOptions(),
 	}, nil
+}
+
+// send to backup queue and wait to be scheduled
+func (db *rocksDBIndex) backupEvery(p string, interval time.Duration) {
+	for _ = range time.Tick(interval) {
+		backupCh <- func() error {
+			engine, err := gorocksdb.OpenBackupEngine(db.opts, p)
+			if err != nil {
+				return err
+			}
+			return engine.CreateNewBackup(db.db)
+		}
+	}
 }
 
 func (db *rocksDBIndex) Get(key string) (fi FileInfo, err error) {
@@ -299,9 +324,10 @@ func (db *rocksDBIndex) ListN(keyPrefix string, count int) ([]string, error) {
 }
 
 func (db *rocksDBIndex) Close() error {
-	db.db.Close()
 	db.ro.Destroy()
 	db.wo.Destroy()
+	db.opts.Destroy()
+	db.db.Close()
 	return nil
 }
 
