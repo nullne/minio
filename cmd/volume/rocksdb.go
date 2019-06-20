@@ -86,8 +86,8 @@ func RestoreRocksDBFromBackup(backupPath, p string, opt RocksDBOptions) error {
 	if err != nil {
 		return err
 	}
-	ro := gorocksdb.RestoreOptions{}
-	return engine.RestoreDBFromLatestBackup(p, p, &ro)
+	ro := gorocksdb.NewRestoreOptions()
+	return engine.RestoreDBFromLatestBackup(p, p, ro)
 }
 
 // set rocksdb options
@@ -139,14 +139,14 @@ func NewRocksDBIndex(dir string, opt RocksDBOptions) (Index, error) {
 	}, nil
 }
 
-// send to backup queue and wait to be scheduled
 func (db *rocksDBIndex) backupEvery(p string, interval time.Duration) {
 	for _ = range time.Tick(interval) {
-		backupCh <- func() error {
+		globalBackupQueue <- func() error {
 			engine, err := gorocksdb.OpenBackupEngine(db.opts, p)
 			if err != nil {
 				return err
 			}
+			defer engine.Close()
 			return engine.CreateNewBackup(db.db)
 		}
 	}

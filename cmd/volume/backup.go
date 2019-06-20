@@ -2,12 +2,14 @@ package volume
 
 import "fmt"
 
-var backupCh = make(chan func() error)
+var globalBackupQueue = make(chan func() error)
 
 func init() {
-	for fn := range backupCh {
-		if err := fn(); err != nil {
-			fmt.Println(err)
+	go func() {
+		for fn := range globalBackupQueue {
+			if err := fn(); err != nil {
+				fmt.Println(err)
+			}
 		}
-	}
+	}()
 }
