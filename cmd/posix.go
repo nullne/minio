@@ -1426,6 +1426,11 @@ func (s *posix) RenameFile(srcVolume, srcPath, dstVolume, dstPath string) (err e
 	if err = checkPathLength(dstFilePath); err != nil {
 		return err
 	}
+
+	if globalFileVolumeEnabled && !(isMinioMetaBucketName(srcVolume) && isMinioMetaBucketName(dstVolume)) {
+		return s.renameFileFromFileVolume(srcVolume, srcPath, dstVolume, dstPath)
+	}
+
 	if srcIsDir {
 		// If source is a directory, we expect the destination to be non-existent but we
 		// we still need to allow overwriting an empty directory since it represents

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"go.uber.org/multierr"
 	"gopkg.in/bufio.v1"
 )
 
@@ -184,19 +185,17 @@ func (v *Volume) MakeDir(p string) error {
 }
 
 // remove the volume itself including data and index
-func (v *Volume) Remove() error {
-	if err := v.index.Remove(); err != nil {
-		return err
-	}
-	if err := v.files.remove(); err != nil {
-		return err
-	}
-	return os.RemoveAll(v.dir)
+func (v *Volume) Remove() (err error) {
+	err = multierr.Append(err, v.index.Remove())
+	err = multierr.Append(err, v.files.remove())
+	err = multierr.Append(err, os.RemoveAll(v.dir))
+	return
 }
 
-func (v *Volume) Close() error {
-	v.files.close()
-	return v.index.Close()
+func (v *Volume) Close() (err error) {
+	err = multierr.Append(err, v.index.Close())
+	err = multierr.Append(err, v.files.close())
+	return
 }
 
 // pathJoin - like path.Join() but retains trailing "/" of the last element

@@ -18,6 +18,8 @@ type rocksDBIndex struct {
 	db *gorocksdb.DB
 	wo *gorocksdb.WriteOptions
 	ro *gorocksdb.ReadOptions
+
+	closed bool
 }
 
 type RocksDBOptions struct {
@@ -270,6 +272,11 @@ func (db *rocksDBIndex) ListN(keyPrefix string, count int) ([]string, error) {
 	}
 
 	it.Seek([]byte(keyPrefix))
+	// the directory not found
+	if !it.Valid() {
+		return nil, os.ErrNotExist
+	}
+
 	for count != 0 {
 		if !it.Valid() {
 			break
@@ -299,9 +306,13 @@ func (db *rocksDBIndex) ListN(keyPrefix string, count int) ([]string, error) {
 }
 
 func (db *rocksDBIndex) Close() error {
+	if db.closed {
+		return nil
+	}
 	db.db.Close()
 	db.ro.Destroy()
 	db.wo.Destroy()
+	db.closed = true
 	return nil
 }
 

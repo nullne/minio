@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -73,17 +74,23 @@ func closeFileVolume() error {
 	return nil
 }
 
-func convertError(err error) error {
-	switch err {
-	case os.ErrNotExist:
-		return errFileNotFound
+func convertError(err error, directory bool) error {
+	switch {
+	case err == os.ErrNotExist:
+		if directory {
+			return errVolumeNotFound
+		} else {
+			return errFileNotFound
+		}
+	case isSysErrIO(err):
+		return errFaultyDisk
 	default:
 		return err
 	}
 }
 
 func (s *posix) readAllFromFileVolume(volume, path string) (buf []byte, err error) {
-	defer func() { err = convertError(err) }()
+	defer func() { err = convertError(err, false) }()
 
 	vol, err := getFileVolume(filepath.Join(s.diskPath, volume))
 	if err != nil {
@@ -93,7 +100,7 @@ func (s *posix) readAllFromFileVolume(volume, path string) (buf []byte, err erro
 }
 
 func (s *posix) readFileFromFileVolume(volume, path string, offset int64, buffer []byte, verifier *BitrotVerifier) (nn int64, err error) {
-	defer func() { err = convertError(err) }()
+	defer func() { err = convertError(err, false) }()
 
 	vol, err := getFileVolume(filepath.Join(s.diskPath, volume))
 	if err != nil {
@@ -137,7 +144,7 @@ func (s *posix) readFileFromFileVolume(volume, path string, offset int64, buffer
 }
 
 func (s *posix) readFileStreamFromFileVolume(volume, path string, offset, length int64) (r io.ReadCloser, err error) {
-	defer func() { err = convertError(err) }()
+	defer func() { err = convertError(err, false) }()
 
 	vol, err := getFileVolume(filepath.Join(s.diskPath, volume))
 	if err != nil {
@@ -163,7 +170,7 @@ func (s *posix) createFileToFileVolume(volume, path string, fileSize int64, r io
 }
 
 func (s *posix) deleteFromFileVolume(volume, path string) (err error) {
-	defer func() { err = convertError(err) }()
+	defer func() { err = convertError(err, false) }()
 	vol, err := getFileVolume(filepath.Join(s.diskPath, volume))
 	if err != nil {
 		return err
@@ -172,7 +179,7 @@ func (s *posix) deleteFromFileVolume(volume, path string) (err error) {
 }
 
 func (s *posix) statFileFromFileVolume(volume, path string) (info FileInfo, err error) {
-	defer func() { err = convertError(err) }()
+	defer func() { err = convertError(err, false) }()
 
 	vol, err := getFileVolume(filepath.Join(s.diskPath, volume))
 	if err != nil {
@@ -195,7 +202,7 @@ func (s *posix) statFileFromFileVolume(volume, path string) (info FileInfo, err 
 }
 
 func (s *posix) statDirFromFileVolume(volume, path string) (volInfo VolInfo, err error) {
-	defer func() { err = convertError(err) }()
+	defer func() { err = convertError(err, true) }()
 
 	vol, err := getFileVolume(filepath.Join(s.diskPath, volume))
 	if err != nil {
@@ -212,7 +219,7 @@ func (s *posix) statDirFromFileVolume(volume, path string) (volInfo VolInfo, err
 }
 
 func (s *posix) listDirFromFileVolume(volume, dirPath string, count int) (entries []string, err error) {
-	defer func() { err = convertError(err) }()
+	defer func() { err = convertError(err, true) }()
 
 	vol, err := getFileVolume(filepath.Join(s.diskPath, volume))
 	if err != nil {
@@ -223,7 +230,7 @@ func (s *posix) listDirFromFileVolume(volume, dirPath string, count int) (entrie
 }
 
 func (s *posix) appendFileToFileVolume(volume, path string, buf []byte) (err error) {
-	return nil
+	return errors.New("not implemented")
 }
 
 func (s *posix) deleteVolFromFileVolume(volume string) error {
@@ -232,14 +239,27 @@ func (s *posix) deleteVolFromFileVolume(volume string) error {
 	if vol == nil {
 		return nil
 	}
-	return vol.Remove()
+	if err := vol.Remove(); err != nil {
+		switch {
+		case os.IsPermission(err):
+			return errDiskAccessDenied
+		case isSysErrIO(err):
+			return errFaultyDisk
+		default:
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *posix) makeDirFromFileVolume(volume, path string) error {
-	fmt.Println("volume", volume, "path", path)
 	vol, err := getFileVolume(filepath.Join(s.diskPath, volume))
 	if err != nil {
 		return err
 	}
 	return vol.MakeDir(path)
+}
+
+func (s *posix) renameFileFromFileVolume(srcVolume, srcPath, dstVolume, dstPath string) (err error) {
+	return errors.New("not implemented")
 }
