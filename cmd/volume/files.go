@@ -9,8 +9,9 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
-	"syscall"
 	"time"
+
+	"github.com/minio/minio/cmd/logger"
 )
 
 const (
@@ -64,7 +65,7 @@ func newFiles(ctx context.Context, dir string) (fs *files, err error) {
 
 	// wait the first wriable file
 	if _, err := fs.getFileToWrite(ctx); err != nil {
-		fmt.Println("read only files")
+		logger.LogIf(ctx, err)
 	}
 
 	go fs.writeWorker(ctx)
@@ -138,7 +139,7 @@ func (fs *files) prepareFileToWrite(ctx context.Context) {
 
 		wr, err := createFile(fs.dir, fid)
 		if err != nil {
-			fmt.Println(err)
+			logger.LogIf(ctx, err)
 			fs.createFileError.Store(err.Error())
 			// if the error is no space, no need to retry
 			if isSysErrNoSpace(err) {
@@ -151,7 +152,7 @@ func (fs *files) prepareFileToWrite(ctx context.Context) {
 		if files[fid] == nil {
 			f, err := openFileToRead(wr.path)
 			if err != nil {
-				fmt.Println(err)
+				logger.LogIf(ctx, err)
 				fs.createFileError.Store(err.Error())
 				time.Sleep(10 * time.Second)
 				continue
@@ -199,9 +200,7 @@ retry:
 			return nil, errors.New("cannot get file to write")
 		}
 		if wf := fs.writableFile; wf != nil {
-			if err := wf.close(); err != nil {
-				fmt.Println(err)
-			}
+			logger.LogIf(ctx, wf.close())
 		}
 		fs.writableFile = f
 	default:
@@ -276,9 +275,7 @@ func (fs *files) close() error {
 		if f == nil {
 			continue
 		}
-		if err := f.close(); err != nil {
-			fmt.Println(err)
-		}
+		logger.LogIf(context.Background(), f.close())
 	}
 	return fs.flock.release()
 }
@@ -290,11 +287,11 @@ func (fs *files) remove() error {
 	return os.RemoveAll(fs.dir)
 }
 
-// No space left on device error
 func isSysErrNoSpace(err error) bool {
-	if err == syscall.ENOSPC {
-		return true
-	}
-	pathErr, ok := err.(*os.PathError)
-	return ok && pathErr.Err == syscall.ENOSPC
+	return strings.Contains(err.Error(), "no space left on device")
+	// if err == syscall.ENOSPC {
+	// 	return true
+	// }
+	// pathErr, ok := err.(*os.PathError)
+	// return ok && pathErr.Err == syscall.ENOSPC
 }

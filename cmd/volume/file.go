@@ -1,6 +1,7 @@
 package volume
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -13,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/minio/minio/cmd/logger"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -38,24 +40,32 @@ const (
 )
 
 func createFile(dir string, id int32) (f *file, err error) {
+	p := filepath.Join(dir, fmt.Sprintf("%d%s", id, dataFileSuffix))
+	defer func() {
+		if err != nil {
+			err = fmt.Errorf("failed to create file %s to write: %v", p, err)
+		}
+	}()
 	f = new(file)
 	f.id = id
-	path := filepath.Join(dir, fmt.Sprintf("%d%s", id, dataFileSuffix))
-	f.path = path
-	f.data, err = os.OpenFile(path, os.O_WRONLY|os.O_CREATE, 0666)
+	f.path = p
+	f.data, err = os.OpenFile(p, os.O_WRONLY|os.O_CREATE, 0666)
 	if err != nil {
 		return nil, err
 	}
 	if err := Fallocate(int(f.data.Fd()), 0, MaxFileSize); err != nil {
-		if e := f.remove(); e != nil {
-			fmt.Println("failed to remove dangling file", e)
-		}
+		logger.LogIf(context.Background(), f.remove())
 		return nil, err
 	}
 	return
 }
 
 func openFileToRead(p string) (f *file, err error) {
+	defer func() {
+		if err != nil {
+			err = fmt.Errorf("failed to open file %s for read: %v", p, err)
+		}
+	}()
 	name := path.Base(p)
 	n := strings.Index(name, dataFileSuffix)
 	if n == -1 {
@@ -173,7 +183,7 @@ func (f *file) write(data []byte) (int64, error) {
 		if err != nil {
 			if te := w.Truncate(end); te != nil {
 				// glog.V(0).Infof("Failed to truncate %s back to %d with error: %v", w.Name(), end, te)
-				fmt.Printf("failed to truncate %s back to %d with error: %v\n", w.Name(), end, te)
+				logger.LogIf(context.Background(), fmt.Errorf("failed to truncate %s back to %d with error: %v", w.Name(), end, te))
 			}
 		}
 	}(f.data, end)
