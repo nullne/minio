@@ -47,7 +47,9 @@ func createFile(dir string, id int32) (f *file, err error) {
 		return nil, err
 	}
 	if err := Fallocate(int(f.data.Fd()), 0, MaxFileSize); err != nil {
-		f.data.Close()
+		if e := f.remove(); e != nil {
+			fmt.Println("failed to remove dangling file", e)
+		}
 		return nil, err
 	}
 	return

@@ -2,12 +2,14 @@ package volume
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path"
 	"strconv"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"time"
 )
 
@@ -20,12 +22,13 @@ type fileLock interface {
 }
 
 type files struct {
-	dir            string
-	files          atomic.Value // []*file
-	ch             chan request
-	writableFile   *file
-	chWritableFile chan *file
-	flock          fileLock
+	dir             string
+	files           atomic.Value // []*file
+	ch              chan request
+	writableFile    *file
+	chWritableFile  chan *file
+	createFileError atomic.Value // error to create new file
+	flock           fileLock
 }
 
 func newFiles(ctx context.Context, dir string) (fs *files, err error) {
@@ -59,9 +62,9 @@ func newFiles(ctx context.Context, dir string) (fs *files, err error) {
 
 	go fs.prepareFileToWrite(ctx)
 
-	// make sure the volume can be write to
+	// wait the first wriable file
 	if _, err := fs.getFileToWrite(ctx); err != nil {
-		return nil, err
+		fmt.Println("read only files")
 	}
 
 	go fs.writeWorker(ctx)
@@ -110,6 +113,7 @@ type response struct {
 }
 
 func (fs *files) prepareFileToWrite(ctx context.Context) {
+	defer close(fs.chWritableFile)
 	var cur int32 = -1
 	for {
 		select {
@@ -135,7 +139,12 @@ func (fs *files) prepareFileToWrite(ctx context.Context) {
 		wr, err := createFile(fs.dir, fid)
 		if err != nil {
 			fmt.Println(err)
-			time.Sleep(time.Second)
+			fs.createFileError.Store(err.Error())
+			// if the error is no space, no need to retry
+			if isSysErrNoSpace(err) {
+				return
+			}
+			time.Sleep(10 * time.Second)
 			continue
 		}
 
@@ -143,13 +152,15 @@ func (fs *files) prepareFileToWrite(ctx context.Context) {
 			f, err := openFileToRead(wr.path)
 			if err != nil {
 				fmt.Println(err)
-				time.Sleep(time.Second)
+				fs.createFileError.Store(err.Error())
+				time.Sleep(10 * time.Second)
 				continue
 			}
 			files[fid] = f
 		}
 
 		fs.files.Store(files)
+		fs.createFileError.Store("")
 
 		select {
 		case fs.chWritableFile <- wr:
@@ -179,16 +190,29 @@ func (fs *files) getFileToWrite(ctx context.Context) (*file, error) {
 	if fs.writableFile != nil && !fs.writableFile.isReadOnly() {
 		return fs.writableFile, nil
 	}
+retry:
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
-	case f := <-fs.chWritableFile:
+	case f, ok := <-fs.chWritableFile:
+		if !ok {
+			return nil, errors.New("cannot get file to write")
+		}
 		if wf := fs.writableFile; wf != nil {
-			wf.close()
+			if err := wf.close(); err != nil {
+				fmt.Println(err)
+			}
 		}
 		fs.writableFile = f
+	default:
+		err := fs.createFileError.Load()
+		if err == nil || err == "" {
+			time.Sleep(time.Second)
+			goto retry
+		} else {
+			return nil, fmt.Errorf("cannot get file to write: %s", err.(string))
+		}
 	}
-
 	return fs.writableFile, nil
 }
 
@@ -264,4 +288,13 @@ func (fs *files) remove() error {
 		return err
 	}
 	return os.RemoveAll(fs.dir)
+}
+
+// No space left on device error
+func isSysErrNoSpace(err error) bool {
+	if err == syscall.ENOSPC {
+		return true
+	}
+	pathErr, ok := err.(*os.PathError)
+	return ok && pathErr.Err == syscall.ENOSPC
 }
