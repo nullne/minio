@@ -56,6 +56,7 @@ type mgmtQueryKey string
 // Only valid query params for mgmt admin APIs.
 const (
 	mgmtBucket      mgmtQueryKey = "bucket"
+	mgmtObject      mgmtQueryKey = "object"
 	mgmtPrefix                   = "prefix"
 	mgmtClientToken              = "clientToken"
 	mgmtForceStart               = "forceStart"
@@ -784,6 +785,88 @@ func (a adminAPIHandlers) HealHandler(w http.ResponseWriter, r *http.Request) {
 	// call above can take a long time - to keep the
 	// connection alive, we start sending whitespace
 	keepConnLive(w, respCh)
+}
+
+// ListObjectsToHeal - GET /minio/admin/v1/heal
+func (a adminAPIHandlers) ListObjectsToHealHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := newContext(r, w, "ListObjectsToHeal")
+
+	objectAPI := validateAdminReq(ctx, w, r)
+	if objectAPI == nil {
+		return
+	}
+
+	// Check if this setup has an erasure coded backend.
+	if !globalIsXL {
+		writeErrorResponseJSON(ctx, w, errorCodes.ToAPIErr(ErrHealNotImplemented), r.URL)
+		return
+	}
+
+	//from local
+
+}
+
+func extractHealObjectParams(r *http.Request) (bucket, object string, hs madmin.HealOpts, err APIErrorCode) {
+	vars := mux.Vars(r)
+
+	bucket = vars[string(mgmtBucket)]
+	if !IsValidBucketName(bucket) {
+		err = ErrInvalidBucketName
+		return
+	}
+
+	object = vars[string(mgmtObject)]
+	if !IsValidObjectName(object) {
+		err = ErrInvalidObjectName
+		return
+	}
+
+	jerr := json.NewDecoder(r.Body).Decode(&hs)
+	if jerr != nil {
+		logger.LogIf(context.Background(), jerr)
+		err = ErrRequestBodyParse
+		return
+	}
+	err = ErrNone
+	return
+}
+
+// ListObjectsToHeal - GET /minio/admin/v1/heal/bucket/object
+func (a adminAPIHandlers) HealObjectHandler(w http.ResponseWriter, r *http.Request) {
+	bucket, object, hs, errCode := extractHealObjectParams(r)
+	reqInfo := &logger.ReqInfo{RemoteHost: handlers.GetSourceIP(r), API: "HealObject", BucketName: bucket, ObjectName: object}
+	ctx := logger.SetReqInfo(context.Background(), reqInfo)
+	if errCode != ErrNone {
+		writeErrorResponseJSON(ctx, w, errorCodes.ToAPIErr(errCode), r.URL)
+		return
+	}
+	// Get current object layer instance.
+	objectAPI := validateAdminReq(ctx, w, r)
+	if objectAPI == nil {
+		writeErrorResponseJSON(ctx, w, errorCodes.ToAPIErr(ErrServerNotInitialized), r.URL)
+		return
+	}
+
+	// Check if this setup has an erasure coded backend.
+	if !globalIsXL {
+		writeErrorResponseJSON(ctx, w, errorCodes.ToAPIErr(ErrHealNotImplemented), r.URL)
+		return
+	}
+
+	hri, err := objectAPI.HealObject(ctx, bucket, object, hs.DryRun, hs.Remove, hs.ScanMode)
+	// if isErrObjectNotFound(err) {
+	// 	return nil
+	// }
+	if err != nil {
+		writeErrorResponseJSON(ctx, w, toAdminAPIErr(ctx, err), r.URL)
+	}
+	bs, err := json.Marshal(hri)
+	if err != nil {
+		writeErrorResponseJSON(ctx, w, toAdminAPIErr(ctx, err), r.URL)
+		return
+	}
+	writeSuccessResponseJSON(w, bs)
+	return
 }
 
 // GetConfigHandler - GET /minio/admin/v1/config
