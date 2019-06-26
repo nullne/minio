@@ -3,7 +3,6 @@ package volume
 import (
 	"bytes"
 	"os"
-	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -254,20 +253,18 @@ func (db *rocksDBIndex) ListN(keyPrefix string, count int) ([]string, error) {
 	it := db.db.NewIterator(ro)
 	defer it.Close()
 
-	var entries []string
+	var entryMap map[string]struct{}
+	if count <= 0 {
+		entryMap = make(map[string]struct{})
+	} else {
+		entryMap = make(map[string]struct{}, count)
+	}
 
 	addToEntries := func(entry string) {
-		found := false
-		for _, e := range entries {
-			if e == entry {
-				found = true
-				break
-			}
-		}
-		if found {
+		if _, ok := entryMap[entry]; ok {
 			return
 		}
-		entries = append(entries, entry)
+		entryMap[entry] = struct{}{}
 		count--
 	}
 
@@ -284,6 +281,7 @@ func (db *rocksDBIndex) ListN(keyPrefix string, count int) ([]string, error) {
 		key := it.Key()
 		entry := subDir(string(key.Data()), keyPrefix)
 		if entry == "" {
+			key.Free()
 			it.Next()
 			continue
 		}
@@ -293,7 +291,7 @@ func (db *rocksDBIndex) ListN(keyPrefix string, count int) ([]string, error) {
 
 		for {
 			it.Next()
-			if !it.ValidForPrefix([]byte(path.Join(keyPrefix + entry))) {
+			if !it.ValidForPrefix([]byte(pathJoin(keyPrefix, entry))) {
 				break
 			}
 		}
@@ -301,6 +299,10 @@ func (db *rocksDBIndex) ListN(keyPrefix string, count int) ([]string, error) {
 
 	if err := it.Err(); err != nil {
 		return nil, err
+	}
+	entries := make([]string, 0, len(entryMap))
+	for k, _ := range entryMap {
+		entries = append(entries, k)
 	}
 	return entries, nil
 }
