@@ -269,3 +269,38 @@ func (adm *AdminClient) Heal(bucket, prefix string, healOpts HealOpts,
 	}
 	return healStart, healTaskStatus, nil
 }
+
+// HealObject - API endpoint to heal one object
+func (adm *AdminClient) HealObject(bucket, object string, healOpts HealOpts) (result HealResultItem, err error) {
+	body, err := json.Marshal(healOpts)
+	if err != nil {
+		return result, err
+	}
+	path := fmt.Sprintf("/v1/heal/%s/%s", bucket, object)
+	queryVals := make(url.Values)
+	resp, err := adm.executeMethod("PATCH", requestData{
+		relPath:     path,
+		content:     body,
+		queryValues: queryVals,
+	})
+	defer closeResponse(resp)
+	if err != nil {
+		return result, err
+	}
+	respBytes, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return result, err
+	}
+	if err := json.Unmarshal(respBytes, &result); err != nil {
+		// May be the server responded with error after success
+		// message, handle it separately here.
+		var errResp ErrorResponse
+		err = json.Unmarshal(respBytes, &errResp)
+		if err != nil {
+			// Unknown structure return error anyways.
+			return result, err
+		}
+		return result, errResp
+	}
+	return result, err
+}

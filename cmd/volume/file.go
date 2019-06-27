@@ -54,7 +54,7 @@ func createFile(dir string, id int32) (f *file, err error) {
 		return nil, err
 	}
 	if err := Fallocate(int(f.data.Fd()), 0, MaxFileSize); err != nil {
-		logger.LogIf(context.Background(), f.remove())
+		logger.LogIf(context.Background(), f.close())
 		return nil, err
 	}
 	return
@@ -159,6 +159,12 @@ func (f *file) read(buffer []byte, offset int64) (int64, error) {
 	n, err := f.data.ReadAt(buffer, offset)
 	if err == io.EOF {
 		err = io.ErrUnexpectedEOF
+
+		// make sure whether it's not found or really EOF
+		fi, e := f.data.Stat()
+		if e == nil && fi.Size() < offset+int64(len(buffer)) {
+			err = os.ErrNotExist
+		}
 	}
 	return int64(n), err
 }

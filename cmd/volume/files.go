@@ -218,11 +218,13 @@ retry:
 func (fs *files) getFileToRead(fid uint32) (*file, error) {
 	files := fs.files.Load().([]*file)
 	if len(files) <= int(fid) {
-		return nil, fmt.Errorf("file volume %d not found", fid)
+		// return nil, fmt.Errorf("file volume %d not found", fid)
+		return nil, os.ErrNotExist
 	}
 	file := files[fid]
 	if file == nil {
-		return nil, fmt.Errorf("file volume %d not found", fid)
+		// return nil, fmt.Errorf("file volume %d not found", fid)
+		return nil, os.ErrNotExist
 	}
 	return file, nil
 }

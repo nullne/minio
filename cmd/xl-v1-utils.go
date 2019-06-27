@@ -344,7 +344,7 @@ func readXLMeta(ctx context.Context, disk StorageAPI, bucket string, object stri
 	if err != nil {
 		logger.GetReqInfo(ctx).AppendTags("disk", disk.String())
 		logger.LogIf(ctx, err)
-		return xlMetaV1{}, err
+		return xlMetaV1{}, errCorruptedFormat
 	}
 	// Return structured `xl.json`.
 	return xlMeta, nil
