@@ -853,7 +853,7 @@ func (a adminAPIHandlers) HealObjectHandler(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	hri, err := objectAPI.HealObject(ctx, bucket, object, hs.DryRun, hs.Remove, hs.ScanMode)
+	hri, err := objectAPI.HealObject(ctx, bucket, object, hs.DryRun, hs.Remove, hs.ScanMode, hs.DisksIndex)
 	// if isErrObjectNotFound(err) {
 	// 	return nil
 	// }

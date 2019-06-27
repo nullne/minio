@@ -42,6 +42,8 @@ type HealOpts struct {
 	DryRun    bool         `json:"dryRun"`
 	Remove    bool         `json:"remove"`
 	ScanMode  HealScanMode `json:"scanMode"`
+	// only index specified disk will be heal. map key is set index
+	DisksIndex map[int][]int `json:"disksIndex"`
 }
 
 // HealStartSuccess - holds information about a successfully started
@@ -85,6 +87,7 @@ const (
 	DriveStateOffline        = "offline"
 	DriveStateCorrupt        = "corrupt"
 	DriveStateMissing        = "missing"
+	DriveStateUnknown        = "unknown"
 )
 
 // HealDriveInfo - struct for an individual drive info item.
