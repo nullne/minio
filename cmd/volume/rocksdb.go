@@ -275,7 +275,7 @@ func (db *rocksDBIndex) ListN(keyPrefix string, count int) ([]string, error) {
 	}
 
 	for count != 0 {
-		if !it.Valid() {
+		if !it.ValidForPrefix([]byte(keyPrefix)) {
 			break
 		}
 		key := it.Key()
