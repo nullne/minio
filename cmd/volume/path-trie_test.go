@@ -42,7 +42,7 @@ func TestPathTrie(t *testing.T) {
 	for _, tc := range cases {
 		switch tc.fn {
 		case "list":
-			ls := root.list(segment(tc.path))
+			ls := root.list(segment(tc.path), -1)
 			sort.Strings(ls)
 			if len(ls) != len(tc.expected) {
 				t.Errorf("got %v, wanna %v", ls, tc.expected)

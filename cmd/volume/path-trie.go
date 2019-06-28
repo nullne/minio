@@ -25,7 +25,7 @@ func (t *pathTrie) getChild(key string) (*pathTrie, bool) {
 	return child, ok
 }
 
-func (t *pathTrie) list(segments []string) []string {
+func (t *pathTrie) list(segments []string, max int) []string {
 	node := t
 	for _, s := range segments {
 		child, ok := node.getChild(s)
@@ -39,6 +39,10 @@ func (t *pathTrie) list(segments []string) []string {
 	entries := make([]string, 0, len(node.children))
 	for k := range node.children {
 		entries = append(entries, k)
+		max--
+		if max == 0 {
+			break
+		}
 	}
 	node.RUnlock()
 	return entries
