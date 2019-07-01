@@ -16,6 +16,10 @@ import (
 
 const (
 	xlJSONFile = "xl.json"
+
+	IndexDir       = "index"
+	DataDir        = "data"
+	IndexBackupDir = "backup"
 )
 
 type Volume struct {
@@ -32,7 +36,7 @@ func NewVolume(ctx context.Context, dir string) (v *Volume, err error) {
 	v = new(Volume)
 	v.dir = dir
 	v.index = index
-	v.files, err = newFiles(ctx, path.Join(dir, "data"))
+	v.files, err = newFiles(ctx, path.Join(dir, DataDir))
 	if err != nil {
 		return nil, err
 	}

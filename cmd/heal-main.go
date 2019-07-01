@@ -1,15 +1,19 @@
 package cmd
 
 import (
-	"fmt"
-
 	"github.com/minio/cli"
 )
+
+var healFlags = []cli.Flag{}
 
 var healCmd = cli.Command{
 	Name:   "heal",
 	Usage:  "heal the single minio node",
+	Flags:  healFlags,
 	Action: mainHeal,
+	Subcommands: []cli.Command{
+		healRestoreIndexCmd,
+	},
 	CustomHelpTemplate: `NAME:
    {{.HelpName}} - {{.Usage}}
 
@@ -20,24 +24,10 @@ FLAGS:
   {{range .VisibleFlags}}{{.}}
   {{end}}{{end}}
 EXAMPLES:
-   1. Heal the whole cluster:
-      $ {{.HelpName}} /data{1..12}
 `,
 }
 
-func mainHeal(ctx *cli.Context) {
-	if ctx.Args().First() == "help" {
-		cli.ShowCommandHelpAndExit(ctx, "heal", 1)
-	}
-	fmt.Println(ctx.Args(), len(ctx.Args()))
-	for _, s := range ctx.Args() {
-		p, err := newPosix(s)
-		if err != nil {
-			panic(err)
-		}
-		if err := p.RestoreIndex(); err != nil {
-			panic(err)
-		}
-		p.Close()
-	}
+func mainHeal(ctx *cli.Context) error {
+	cli.ShowCommandHelp(ctx, ctx.Args().First())
+	return nil
 }
