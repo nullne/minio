@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/minio/minio/cmd/logger"
 	fv "github.com/minio/minio/cmd/volume"
 	"gopkg.in/bufio.v1"
 )
@@ -43,6 +44,7 @@ func addFileVolume(path string) error {
 	// someone is initializing, wait and check again
 	if ok {
 		time.Sleep(time.Second)
+		logger.Info("sleep to wait other to add volume %s", path)
 		return addFileVolume(path)
 	}
 

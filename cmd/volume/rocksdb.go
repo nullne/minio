@@ -2,7 +2,6 @@ package volume
 
 import (
 	"bytes"
-	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -14,7 +13,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/minio/minio/cmd/logger"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/tecbot/gorocksdb"
 )
@@ -188,7 +186,6 @@ func NewRocksDBIndex(dir string, opt RocksDBOptions) (Index, error) {
 		return nil, err
 	}
 	index := rocksDBIndex{
-		// <<<<<<< HEAD
 		db:   db,
 		wo:   gorocksdb.NewDefaultWriteOptions(),
 		ro:   gorocksdb.NewDefaultReadOptions(),
@@ -208,7 +205,6 @@ func NewRocksDBIndex(dir string, opt RocksDBOptions) (Index, error) {
 		if err != nil {
 			return nil, err
 		}
-		initJob()
 		go index.backupEvery(pathJoin(opt.BackupRoot, dir, IndexBackupDir), duration)
 	}
 
@@ -234,7 +230,7 @@ func (db rocksDBIndex) segment(key string) []string {
 
 func (db *rocksDBIndex) initDirectoryCache() {
 	init := func() error {
-		logger.Info("start to init directory cache for rocksdb %s", db.db.Name())
+		time.Sleep(time.Second * 10)
 		ro := gorocksdb.NewDefaultReadOptions()
 		ro.SetFillCache(false)
 		defer ro.Destroy()
@@ -253,33 +249,20 @@ func (db *rocksDBIndex) initDirectoryCache() {
 		db.directoryStatus.Store(directoryStatusWorking)
 		return nil
 	}
-	if err := init(); err != nil {
-		logger.LogIf(context.Background(), err)
-		return
+
+	initJob()
+	result := make(chan error, 1)
+	globalBackupQueue <- job{
+		name:   fmt.Sprintf("init directory cache for rocksdb %s", db.db.Name()),
+		fn:     init,
+		result: result,
+		expire: time.Now().Add(time.Hour * 24 * 365), // never expire
 	}
-	logger.Info("finish init directory cache for rocksdb %s", db.db.Name())
+	<-result
 }
 
-// =======
-// 		db:   db,
-// 		wo:   gorocksdb.NewDefaultWriteOptions(),
-// 		ro:   gorocksdb.NewDefaultReadOptions(),
-// 		opts: opts,
-// 	}
-//
-// 	// backup every interval
-// 	if opt.BackupRoot != "" && opt.BackupInterval != "" {
-// 		duration, err := time.ParseDuration(opt.BackupInterval)
-// 		if err != nil {
-// 			return nil, err
-// 		}
-// 		initJob()
-// 		go index.backupEvery(pathJoin(opt.BackupRoot, dir, IndexBackupDir), duration)
-// 	}
-// 	return &index, nil
-// }
-
 func (db *rocksDBIndex) backupEvery(p string, interval time.Duration) {
+	initJob()
 	for _ = range time.Tick(interval) {
 		result := make(chan error, 1)
 		globalBackupQueue <- job{
@@ -296,7 +279,6 @@ func (db *rocksDBIndex) backupEvery(p string, interval time.Duration) {
 			expire: time.Now().Add(interval),
 		}
 	}
-	// >>>>>>> feature.heal-faster
 }
 
 func (db *rocksDBIndex) Get(key string) (fi FileInfo, err error) {

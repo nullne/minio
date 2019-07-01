@@ -191,6 +191,7 @@ func (fs *files) getFileToWrite(ctx context.Context) (*file, error) {
 	if fs.writableFile != nil && !fs.writableFile.isReadOnly() {
 		return fs.writableFile, nil
 	}
+	sleepDuration := time.Millisecond * 10
 retry:
 	select {
 	case <-ctx.Done():
@@ -206,7 +207,12 @@ retry:
 	default:
 		err := fs.createFileError.Load()
 		if err == nil || err == "" {
-			time.Sleep(time.Second)
+			time.Sleep(sleepDuration)
+			sleepDuration *= 2
+			if sleepDuration > time.Second*30 {
+				return nil, errors.New("wait more than 30s and cannot get file to write")
+			}
+			logger.Info("sleep one second to wait the file to write to be created")
 			goto retry
 		} else {
 			return nil, fmt.Errorf("cannot get file to write: %s", err.(string))
