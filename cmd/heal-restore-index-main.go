@@ -1,12 +1,12 @@
 package cmd
 
 import (
-	"fmt"
 	"io/ioutil"
 	"path"
 	"strings"
 
 	"github.com/minio/cli"
+	"github.com/minio/minio/cmd/logger"
 	"github.com/minio/minio/cmd/volume"
 )
 
@@ -59,7 +59,7 @@ func mainHealRestoreIndex(ctx *cli.Context) {
 		// dir := path.Join(root, s)
 		fileInfos, err := ioutil.ReadDir(backupDir)
 		if err != nil {
-			fmt.Println(err)
+			logger.Info("failed to read dir %s: %v", backupDir, err)
 			continue
 		}
 		for _, info := range fileInfos {
@@ -71,17 +71,15 @@ func mainHealRestoreIndex(ctx *cli.Context) {
 				continue
 			}
 			if err := volume.CheckRocksDB(path.Join(root, drive, bucket)); err == nil {
-				fmt.Printf("no need to restore %s\n", path.Join(root, drive, bucket))
+				logger.Info("no need to restore %s\n", path.Join(root, drive, bucket))
 				continue
 			} else if strings.Contains(err.Error(), "Resource temporarily unavailable") {
-				fmt.Println("rocksdb is running, please stop first")
-				return
-
+				logger.Fatal(err, "rocksdb is running, please stop first")
 			} else {
-				fmt.Printf("%s %v, is going to restore from backup\n", path.Join(root, drive, bucket), err)
+				logger.Info("rocksdb %s  got error: %v, is going to restore from backup\n", path.Join(root, drive, bucket), err)
 			}
 			if err := volume.RestoreRocksDBFromBackup(path.Join(backupDir, bucket), path.Join(root, drive, bucket)); err != nil {
-				fmt.Println(err)
+				logger.Info("%+v", err)
 			}
 		}
 	}

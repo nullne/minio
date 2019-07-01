@@ -13,6 +13,7 @@ var healCmd = cli.Command{
 	Action: mainHeal,
 	Subcommands: []cli.Command{
 		healRestoreIndexCmd,
+		healDumpObjectsCmd,
 	},
 	CustomHelpTemplate: `NAME:
    {{.HelpName}} - {{.Usage}}

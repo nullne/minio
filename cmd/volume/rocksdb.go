@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/minio/minio/cmd/logger"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/tecbot/gorocksdb"
 )
@@ -131,6 +132,47 @@ func RestoreRocksDBFromBackup(backupPath, p string) error {
 	return engine.RestoreDBFromLatestBackup(p, p, ro)
 }
 
+func parseObjectKey(key string) string {
+	if strings.HasSuffix(key, xlJSONFile) {
+		return strings.TrimSuffix(key, "/"+xlJSONFile)
+	}
+	if strings.HasSuffix(key, "/") {
+		return strings.TrimSuffix(key, "/")
+	}
+	return ""
+}
+
+func DumpObjectsFromRocksDB(p string) (chan string, error) {
+	p = path.Join(p, IndexDir)
+	opt := parseRocksDBOptionsFromEnv()
+	db, err := gorocksdb.OpenDbForReadOnly(rocksdbOptions(opt), p, false)
+	if err != nil {
+		return nil, err
+	}
+	ch := make(chan string)
+	go func() {
+		defer db.Close()
+		defer close(ch)
+		ro := gorocksdb.NewDefaultReadOptions()
+		ro.SetFillCache(false)
+		defer ro.Destroy()
+		it := db.NewIterator(ro)
+		it.SeekToFirst()
+		defer it.Close()
+		for it = it; it.Valid(); it.Next() {
+			key := it.Key()
+			if k := parseObjectKey(string(key.Data())); k != "" {
+				ch <- k
+			}
+			key.Free()
+		}
+		if err := it.Err(); err != nil {
+			logger.Fatal(err, "failed to dump objects")
+		}
+	}()
+	return ch, nil
+}
+
 func CheckRocksDB(p string) error {
 	p = path.Join(p, IndexDir)
 	opt := parseRocksDBOptionsFromEnv()
@@ -230,7 +272,6 @@ func (db rocksDBIndex) segment(key string) []string {
 
 func (db *rocksDBIndex) initDirectoryCache() {
 	init := func() error {
-		time.Sleep(time.Second * 10)
 		ro := gorocksdb.NewDefaultReadOptions()
 		ro.SetFillCache(false)
 		defer ro.Destroy()
@@ -313,7 +354,7 @@ func (db *rocksDBIndex) Set(key string, fi FileInfo) (err error) {
 
 	// directory cache
 	defer func() {
-		if err != nil || db.directoryStatus.Load().(string) != directoryStatusUnknown || db.directory == nil {
+		if err != nil || db.directoryStatus.Load().(string) == directoryStatusUnknown || db.directory == nil {
 			return
 		}
 		db.directory.put(db.segment(key))
