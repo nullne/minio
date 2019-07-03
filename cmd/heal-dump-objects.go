@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"path"
+	"strings"
 
 	"github.com/minio/cli"
 	"github.com/minio/minio/cmd/logger"
@@ -68,7 +69,7 @@ func mainHealDumpObjects(ctx *cli.Context) {
 
 			for key := range ch {
 				// output to stdout
-				fmt.Println(bucket, key)
+				fmt.Println(strings.Join([]string{bucket, key}, ","))
 			}
 		}
 	}
