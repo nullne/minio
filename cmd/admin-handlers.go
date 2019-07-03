@@ -787,25 +787,6 @@ func (a adminAPIHandlers) HealHandler(w http.ResponseWriter, r *http.Request) {
 	keepConnLive(w, respCh)
 }
 
-// ListObjectsToHeal - GET /minio/admin/v1/heal
-func (a adminAPIHandlers) ListObjectsToHealHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := newContext(r, w, "ListObjectsToHeal")
-
-	objectAPI := validateAdminReq(ctx, w, r)
-	if objectAPI == nil {
-		return
-	}
-
-	// Check if this setup has an erasure coded backend.
-	if !globalIsXL {
-		writeErrorResponseJSON(ctx, w, errorCodes.ToAPIErr(ErrHealNotImplemented), r.URL)
-		return
-	}
-
-	//from local
-
-}
-
 func extractHealObjectParams(r *http.Request) (bucket, object string, hs madmin.HealOpts, err APIErrorCode) {
 	vars := mux.Vars(r)
 
@@ -831,7 +812,7 @@ func extractHealObjectParams(r *http.Request) (bucket, object string, hs madmin.
 	return
 }
 
-// ListObjectsToHeal - GET /minio/admin/v1/heal/bucket/object
+// HealSingleObject - PATCH /minio/admin/v1/heal/bucket/object
 func (a adminAPIHandlers) HealObjectHandler(w http.ResponseWriter, r *http.Request) {
 	bucket, object, hs, errCode := extractHealObjectParams(r)
 	reqInfo := &logger.ReqInfo{RemoteHost: handlers.GetSourceIP(r), API: "HealObject", BucketName: bucket, ObjectName: object}
