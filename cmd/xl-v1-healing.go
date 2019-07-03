@@ -241,7 +241,7 @@ func (xl xlObjects) healObject(ctx context.Context, bucket string, object string
 				continue
 			}
 			outDatedDisks[idx] = storageDisks[idx]
-			fmt.Println("this is", outDatedDisks[idx].String())
+			// fmt.Println("this is", outDatedDisks[idx].String())
 			// so the disk won't be read from
 			latestDisks[idx] = nil
 			disksToHealCount++

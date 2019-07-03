@@ -65,6 +65,7 @@ func newFiles(ctx context.Context, dir string) (fs *files, err error) {
 
 	// wait the first wriable file
 	if _, err := fs.getFileToWrite(ctx); err != nil {
+		fmt.Println("fuck", err)
 		logger.LogIf(ctx, err)
 	}
 
@@ -207,12 +208,12 @@ retry:
 	default:
 		err := fs.createFileError.Load()
 		if err == nil || err == "" {
-			time.Sleep(sleepDuration)
-			sleepDuration *= 2
 			if sleepDuration > time.Second*30 {
 				return nil, errors.New("wait more than 30s and cannot get file to write")
 			}
-			logger.Info("sleep one second to wait the file to write to be created")
+			logger.Info("sleep %s to wait the file to write to be created", sleepDuration.String())
+			time.Sleep(sleepDuration)
+			sleepDuration *= 2
 			goto retry
 		} else {
 			return nil, fmt.Errorf("cannot get file to write: %s", err.(string))

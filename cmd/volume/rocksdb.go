@@ -2,7 +2,6 @@ package volume
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"os"
 	"path"
@@ -16,6 +15,7 @@ import (
 	"github.com/minio/minio/cmd/logger"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/tecbot/gorocksdb"
+	"go.uber.org/multierr"
 )
 
 type rocksDBIndex struct {
@@ -30,6 +30,8 @@ type rocksDBIndex struct {
 	directoryStatus atomic.Value //string
 	cacheLevel      int
 
+	backupDir string
+
 	closed bool
 }
 
@@ -37,10 +39,6 @@ const (
 	directoryStatusUnknown string = "unknown"
 	directoryStatusIniting string = "initing"
 	directoryStatusWorking string = "working"
-)
-
-var (
-	ErrDirectoryCacheNotFinishIniting = errors.New("directory cache not finish initing")
 )
 
 type RocksDBOptions struct {
@@ -247,7 +245,8 @@ func NewRocksDBIndex(dir string, opt RocksDBOptions) (Index, error) {
 		if err != nil {
 			return nil, err
 		}
-		go index.backupEvery(pathJoin(opt.BackupRoot, dir, IndexBackupDir), duration)
+		index.backupDir = pathJoin(opt.BackupRoot, dir, IndexBackupDir)
+		go index.backupEvery(index.backupDir, duration)
 	}
 
 	return &index, nil
@@ -272,6 +271,10 @@ func (db rocksDBIndex) segment(key string) []string {
 
 func (db *rocksDBIndex) initDirectoryCache() {
 	init := func() error {
+		defer catchPanic()
+		if db.closed {
+			return nil
+		}
 		ro := gorocksdb.NewDefaultReadOptions()
 		ro.SetFillCache(false)
 		defer ro.Destroy()
@@ -305,10 +308,17 @@ func (db *rocksDBIndex) initDirectoryCache() {
 func (db *rocksDBIndex) backupEvery(p string, interval time.Duration) {
 	initJob()
 	for _ = range time.Tick(interval) {
+		if db.closed {
+			return
+		}
 		result := make(chan error, 1)
 		globalBackupQueue <- job{
 			name: fmt.Sprintf("backup rocksdb %s to %s", db.db.Name(), p),
 			fn: func() error {
+				defer catchPanic()
+				if db.closed {
+					return nil
+				}
 				engine, err := gorocksdb.OpenBackupEngine(db.opts, p)
 				if err != nil {
 					return err
@@ -459,11 +469,8 @@ func (db *rocksDBIndex) ListN(keyPrefix string, count int) ([]string, error) {
 	// keyPrefix = pathJoin(keyPrefix)
 
 	// list from directory cache
-	if status := db.directoryStatus.Load().(string); status != directoryStatusUnknown {
+	if status := db.directoryStatus.Load().(string); status == directoryStatusWorking {
 		if seg := db.segment(keyPrefix); len(seg) < db.cacheLevel && db.directory != nil {
-			if status != directoryStatusWorking {
-				return nil, ErrDirectoryCacheNotFinishIniting
-			}
 			return db.directory.list(seg, count), nil
 		}
 	}
@@ -540,17 +547,23 @@ func (db *rocksDBIndex) Close() error {
 	return nil
 }
 
-func (db *rocksDBIndex) Remove() error {
+func (db *rocksDBIndex) Remove() (err error) {
 	defer func(before time.Time) {
 		DiskOperationDuration.With(prometheus.Labels{"operation_type": "Remove"}).Observe(time.Since(before).Seconds())
 	}(time.Now())
 	name := db.db.Name()
-	if err := db.Close(); err != nil {
-		return err
-	}
+	err = multierr.Append(err, db.Close())
+
 	opts := gorocksdb.NewDefaultOptions()
 	defer opts.Destroy()
-	return gorocksdb.DestroyDb(name, opts)
+	err = multierr.Append(err, gorocksdb.DestroyDb(name, opts))
+
+	err = multierr.Append(err, os.RemoveAll(path.Dir(strings.TrimRight(name, "/"))))
+
+	if db.backupDir != "" {
+		err = multierr.Append(err, os.RemoveAll(path.Dir(strings.TrimRight(db.backupDir, "/"))))
+	}
+	return err
 }
 
 // p1		p2	 	result

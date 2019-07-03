@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 	"io/ioutil"
+	"os"
 	"path"
 	"strings"
 
@@ -16,6 +18,11 @@ var healDumpObjectsFlags = []cli.Flag{
 		Name:  "index-root",
 		Value: "/index",
 		Usage: "root of the index",
+	},
+	cli.StringFlag{
+		Name:  "output, o",
+		Value: "",
+		Usage: "output to specified file",
 	},
 }
 
@@ -54,6 +61,16 @@ func mainHealDumpObjects(ctx *cli.Context) {
 			logger.Info("failed to read dir %s: %v", dir, err)
 			continue
 		}
+		var writer io.Writer
+		writer = os.Stdout
+		if p := ctx.String("output"); p != "" {
+			file, err := os.OpenFile(p, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0644)
+			if err != nil {
+				logger.Fatal(err, "cannot open file")
+			}
+			defer file.Close()
+			writer = file
+		}
 		for _, info := range fileInfos {
 			if !info.IsDir() {
 				continue
@@ -69,7 +86,7 @@ func mainHealDumpObjects(ctx *cli.Context) {
 
 			for key := range ch {
 				// output to stdout
-				fmt.Println(strings.Join([]string{bucket, key}, ","))
+				fmt.Fprintln(writer, strings.Join([]string{bucket, key}, ","))
 			}
 		}
 	}

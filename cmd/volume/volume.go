@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/minio/minio/cmd/logger"
 	"go.uber.org/multierr"
 	"gopkg.in/bufio.v1"
 )
@@ -189,6 +190,7 @@ func (v *Volume) MakeDir(p string) error {
 }
 
 // remove the volume itself including data and index
+// remove the backup dir also
 func (v *Volume) Remove() (err error) {
 	err = multierr.Append(err, v.index.Remove())
 	err = multierr.Append(err, v.files.remove())
@@ -215,4 +217,10 @@ func pathJoin(elem ...string) string {
 		return ps
 	}
 	return ps + trailingSlash
+}
+
+func catchPanic() {
+	if err := recover(); err != nil {
+		logger.Info("catch panic: %+v", err)
+	}
 }
