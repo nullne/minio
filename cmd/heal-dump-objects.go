@@ -28,7 +28,7 @@ var healDumpObjectsFlags = []cli.Flag{
 
 var healDumpObjectsCmd = cli.Command{
 	Name:        "dump-objects",
-	Usage:       "dump objects from rocksdb",
+	Usage:       "dump object list from rocksdb",
 	Flags:       healDumpObjectsFlags,
 	Action:      mainHealDumpObjects,
 	Subcommands: []cli.Command{},
@@ -42,8 +42,8 @@ FLAGS:
   {{range .VisibleFlags}}{{.}}
   {{end}}{{end}}
 EXAMPLES:
-   1. restore the index from backup on the specified drives (same as the volume path when start minio server):
-      $ {{.HelpName}} /data{1..12}
+   1. dump object list saved on specified drive:
+      $ {{.HelpName}} /data1
 `,
 }
 
@@ -85,7 +85,6 @@ func mainHealDumpObjects(ctx *cli.Context) {
 			}
 
 			for key := range ch {
-				// output to stdout
 				fmt.Fprintln(writer, strings.Join([]string{bucket, key}, ","))
 			}
 		}

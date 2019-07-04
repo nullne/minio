@@ -65,7 +65,6 @@ func newFiles(ctx context.Context, dir string) (fs *files, err error) {
 
 	// wait the first wriable file
 	if _, err := fs.getFileToWrite(ctx); err != nil {
-		fmt.Println("fuck", err)
 		logger.LogIf(ctx, err)
 	}
 

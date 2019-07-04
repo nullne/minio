@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"io/ioutil"
 	"path"
 	"strings"
@@ -51,6 +52,7 @@ func mainHealRestoreIndex(ctx *cli.Context) {
 	backupRoot := ctx.String("backup-root")
 	root := ctx.String("root")
 	if root == "" || backupRoot == "" {
+		logger.Fatal(errors.New("invalid root path"), "root %s or backup root %s should not be empty", root, backupRoot)
 	}
 	// fmt.Println(ctx.Args(), len(ctx.Args()))
 	// make sure the minio service is stopped
