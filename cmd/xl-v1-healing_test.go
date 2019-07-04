@@ -115,7 +115,7 @@ func TestHealObjectCorrupted(t *testing.T) {
 		t.Fatalf("Failed to delete a file - %v", err)
 	}
 
-	_, err = obj.HealObject(context.Background(), bucket, object, false, false, madmin.HealNormalScan)
+	_, err = obj.HealObject(context.Background(), bucket, object, false, false, madmin.HealNormalScan, nil)
 	if err != nil {
 		t.Fatalf("Failed to heal object - %v", err)
 	}
@@ -131,7 +131,7 @@ func TestHealObjectCorrupted(t *testing.T) {
 	}
 
 	// Try healing now, expect to receive errDiskNotFound.
-	_, err = obj.HealObject(context.Background(), bucket, object, false, true, madmin.HealDeepScan)
+	_, err = obj.HealObject(context.Background(), bucket, object, false, true, madmin.HealDeepScan, nil)
 	if err != nil {
 		t.Errorf("Expected nil but received %v", err)
 	}
@@ -201,7 +201,7 @@ func TestHealObjectXL(t *testing.T) {
 		t.Fatalf("Failed to delete a file - %v", err)
 	}
 
-	_, err = obj.HealObject(context.Background(), bucket, object, false, false, madmin.HealNormalScan)
+	_, err = obj.HealObject(context.Background(), bucket, object, false, false, madmin.HealNormalScan, nil)
 	if err != nil {
 		t.Fatalf("Failed to heal object - %v", err)
 	}
@@ -217,7 +217,7 @@ func TestHealObjectXL(t *testing.T) {
 	}
 
 	// Try healing now, expect to receive errDiskNotFound.
-	_, err = obj.HealObject(context.Background(), bucket, object, false, false, madmin.HealDeepScan)
+	_, err = obj.HealObject(context.Background(), bucket, object, false, false, madmin.HealDeepScan, nil)
 	// since majority of xl.jsons are not available, object quorum can't be read properly and error will be errXLReadQuorum
 	if _, ok := err.(InsufficientReadQuorum); !ok {
 		t.Errorf("Expected %v but received %v", InsufficientReadQuorum{}, err)

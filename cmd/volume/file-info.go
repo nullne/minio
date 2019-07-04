@@ -1,6 +1,7 @@
 package volume
 
 import (
+	"crypto/rand"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -19,6 +20,14 @@ type FileInfo struct {
 	// properties properties
 
 	data []byte
+}
+
+func NewDemoFileInfo(size int) FileInfo {
+	data := make([]byte, size)
+	rand.Read(data)
+	return FileInfo{
+		data: data,
+	}
 }
 
 func (f FileInfo) String() string {

@@ -1295,9 +1295,13 @@ func (s *xlSets) HealBucket(ctx context.Context, bucket string, dryRun, remove b
 	return result, nil
 }
 
+// for xlObjects to implement HealObject method of ObjectLayer interface, the disksIndex is a fix length map with defaultDiskIndex as key
+const defaultDiskIndex = -1
+
 // HealObject - heals inconsistent object on a hashedSet based on object name.
-func (s *xlSets) HealObject(ctx context.Context, bucket, object string, dryRun, remove bool, scanMode madmin.HealScanMode) (madmin.HealResultItem, error) {
-	return s.getHashedSet(object).HealObject(ctx, bucket, object, dryRun, remove, scanMode)
+func (s *xlSets) HealObject(ctx context.Context, bucket, object string, dryRun, remove bool, scanMode madmin.HealScanMode, disksIndex map[int][]int) (madmin.HealResultItem, error) {
+	idx := disksIndex[hashKey(s.distributionAlgo, object, len(s.sets))]
+	return s.getHashedSet(object).HealObject(ctx, bucket, object, dryRun, remove, scanMode, map[int][]int{defaultDiskIndex: idx})
 }
 
 // Lists all buckets which need healing.

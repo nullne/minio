@@ -2,6 +2,7 @@ package volume
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path"
@@ -9,6 +10,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"github.com/minio/minio/cmd/logger"
 )
 
 const (
@@ -20,12 +23,13 @@ type fileLock interface {
 }
 
 type files struct {
-	dir            string
-	files          atomic.Value // []*file
-	ch             chan request
-	writableFile   *file
-	chWritableFile chan *file
-	flock          fileLock
+	dir             string
+	files           atomic.Value // []*file
+	ch              chan request
+	writableFile    *file
+	chWritableFile  chan *file
+	createFileError atomic.Value // error to create new file
+	flock           fileLock
 }
 
 func newFiles(ctx context.Context, dir string) (fs *files, err error) {
@@ -59,9 +63,10 @@ func newFiles(ctx context.Context, dir string) (fs *files, err error) {
 
 	go fs.prepareFileToWrite(ctx)
 
-	// make sure the volume can be write to
+	// wait the first wriable file
 	if _, err := fs.getFileToWrite(ctx); err != nil {
-		return nil, err
+		fmt.Println("fuck", err)
+		logger.LogIf(ctx, err)
 	}
 
 	go fs.writeWorker(ctx)
@@ -110,6 +115,7 @@ type response struct {
 }
 
 func (fs *files) prepareFileToWrite(ctx context.Context) {
+	defer close(fs.chWritableFile)
 	var cur int32 = -1
 	for {
 		select {
@@ -134,22 +140,29 @@ func (fs *files) prepareFileToWrite(ctx context.Context) {
 
 		wr, err := createFile(fs.dir, fid)
 		if err != nil {
-			fmt.Println(err)
-			time.Sleep(time.Second)
+			logger.LogIf(ctx, err)
+			fs.createFileError.Store(err.Error())
+			// if the error is no space, no need to retry
+			if isSysErrNoSpace(err) {
+				return
+			}
+			time.Sleep(10 * time.Second)
 			continue
 		}
 
 		if files[fid] == nil {
 			f, err := openFileToRead(wr.path)
 			if err != nil {
-				fmt.Println(err)
-				time.Sleep(time.Second)
+				logger.LogIf(ctx, err)
+				fs.createFileError.Store(err.Error())
+				time.Sleep(10 * time.Second)
 				continue
 			}
 			files[fid] = f
 		}
 
 		fs.files.Store(files)
+		fs.createFileError.Store("")
 
 		select {
 		case fs.chWritableFile <- wr:
@@ -179,27 +192,46 @@ func (fs *files) getFileToWrite(ctx context.Context) (*file, error) {
 	if fs.writableFile != nil && !fs.writableFile.isReadOnly() {
 		return fs.writableFile, nil
 	}
+	sleepDuration := time.Millisecond * 10
+retry:
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
-	case f := <-fs.chWritableFile:
+	case f, ok := <-fs.chWritableFile:
+		if !ok {
+			return nil, errors.New("cannot get file to write")
+		}
 		if wf := fs.writableFile; wf != nil {
-			wf.close()
+			logger.LogIf(ctx, wf.close())
 		}
 		fs.writableFile = f
+	default:
+		err := fs.createFileError.Load()
+		if err == nil || err == "" {
+			if sleepDuration > time.Second*30 {
+				return nil, errors.New("wait more than 30s and cannot get file to write")
+			}
+			logger.Info("sleep %s to wait the file to write to be created", sleepDuration.String())
+			time.Sleep(sleepDuration)
+			sleepDuration *= 2
+			goto retry
+		} else {
+			return nil, fmt.Errorf("cannot get file to write: %s", err.(string))
+		}
 	}
-
 	return fs.writableFile, nil
 }
 
 func (fs *files) getFileToRead(fid uint32) (*file, error) {
 	files := fs.files.Load().([]*file)
 	if len(files) <= int(fid) {
-		return nil, fmt.Errorf("file volume %d not found", fid)
+		// return nil, fmt.Errorf("file volume %d not found", fid)
+		return nil, os.ErrNotExist
 	}
 	file := files[fid]
 	if file == nil {
-		return nil, fmt.Errorf("file volume %d not found", fid)
+		// return nil, fmt.Errorf("file volume %d not found", fid)
+		return nil, os.ErrNotExist
 	}
 	return file, nil
 }
@@ -252,9 +284,7 @@ func (fs *files) close() error {
 		if f == nil {
 			continue
 		}
-		if err := f.close(); err != nil {
-			fmt.Println(err)
-		}
+		logger.LogIf(context.Background(), f.close())
 	}
 	return fs.flock.release()
 }
@@ -264,4 +294,13 @@ func (fs *files) remove() error {
 		return err
 	}
 	return os.RemoveAll(fs.dir)
+}
+
+func isSysErrNoSpace(err error) bool {
+	return strings.Contains(err.Error(), "no space left on device")
+	// if err == syscall.ENOSPC {
+	// 	return true
+	// }
+	// pathErr, ok := err.(*os.PathError)
+	// return ok && pathErr.Err == syscall.ENOSPC
 }

@@ -2,34 +2,57 @@ package volume
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
+	"github.com/minio/minio/cmd/logger"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/tecbot/gorocksdb"
+	"go.uber.org/multierr"
 )
 
 type rocksDBIndex struct {
 	db *gorocksdb.DB
 	wo *gorocksdb.WriteOptions
 	ro *gorocksdb.ReadOptions
+
+	opts *gorocksdb.Options
+
+	// cache the first N level directories
+	directory       *pathTrie
+	directoryStatus atomic.Value //string
+	cacheLevel      int
+
+	backupDir string
+
+	closed bool
 }
 
+const (
+	directoryStatusUnknown string = "unknown"
+	directoryStatusIniting string = "initing"
+	directoryStatusWorking string = "working"
+)
+
 type RocksDBOptions struct {
-	Root       string
-	BackupRoot string
-	BackupCron string
+	Root           string
+	BackupRoot     string
+	BackupInterval string
 
 	DirectRead   bool
 	BloomFilter  bool
 	MaxOpenFiles int
 	BlockCache   int // MB
 	RateLimiter  int //MB
+
+	CacheLevel int
 }
 
 func parseRocksDBOptionsFromEnv() RocksDBOptions {
@@ -41,6 +64,14 @@ func parseRocksDBOptionsFromEnv() RocksDBOptions {
 
 	if s := getenv("MINIO_ROCKSDB_ROOT"); s != "" {
 		opt.Root = s
+	}
+
+	if s := getenv("MINIO_ROCKSDB_BACKUP_ROOT"); s != "" {
+		opt.BackupRoot = s
+	}
+
+	if s := getenv("MINIO_ROCKSDB_BACKUP_INTERVAL"); s != "" {
+		opt.BackupInterval = s
 	}
 
 	if s := getenv("MINIO_DIRECT_READ"); s == "on" {
@@ -71,6 +102,13 @@ func parseRocksDBOptionsFromEnv() RocksDBOptions {
 			opt.RateLimiter = i
 		}
 	}
+
+	if s := getenv("MINIO_ROCKSDB_DIRECTORY_CACHE_LEVEL"); s != "" {
+		i, err := strconv.Atoi(s)
+		if err == nil {
+			opt.CacheLevel = i
+		}
+	}
 	return opt
 }
 
@@ -80,20 +118,74 @@ func (opt *RocksDBOptions) setDefaultIfEmpty() {
 	}
 }
 
-func NewRocksDBIndex(dir string, opt RocksDBOptions) (Index, error) {
-	opt.setDefaultIfEmpty()
-	path := filepath.Join(opt.Root, dir, "index")
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		if err := os.MkdirAll(path, 0755); err != nil {
-			return nil, err
-		}
-	} else if err != nil {
+func RestoreRocksDBFromBackup(backupPath, p string) error {
+	opt := parseRocksDBOptionsFromEnv()
+	engine, err := gorocksdb.OpenBackupEngine(rocksdbOptions(opt), path.Join(backupPath, IndexBackupDir))
+	defer engine.Close()
+	if err != nil {
+		return err
+	}
+	p = path.Join(p, IndexDir)
+	ro := gorocksdb.NewRestoreOptions()
+	return engine.RestoreDBFromLatestBackup(p, p, ro)
+}
+
+func parseObjectKey(key string) string {
+	if strings.HasSuffix(key, xlJSONFile) {
+		return strings.TrimSuffix(key, "/"+xlJSONFile)
+	}
+	if strings.HasSuffix(key, "/") {
+		return strings.TrimSuffix(key, "/")
+	}
+	return ""
+}
+
+func DumpObjectsFromRocksDB(p string) (chan string, error) {
+	p = path.Join(p, IndexDir)
+	opt := parseRocksDBOptionsFromEnv()
+	db, err := gorocksdb.OpenDbForReadOnly(rocksdbOptions(opt), p, false)
+	if err != nil {
 		return nil, err
 	}
+	ch := make(chan string)
+	go func() {
+		defer db.Close()
+		defer close(ch)
+		ro := gorocksdb.NewDefaultReadOptions()
+		ro.SetFillCache(false)
+		defer ro.Destroy()
+		it := db.NewIterator(ro)
+		it.SeekToFirst()
+		defer it.Close()
+		for it = it; it.Valid(); it.Next() {
+			key := it.Key()
+			if k := parseObjectKey(string(key.Data())); k != "" {
+				ch <- k
+			}
+			key.Free()
+		}
+		if err := it.Err(); err != nil {
+			logger.Fatal(err, "failed to dump objects")
+		}
+	}()
+	return ch, nil
+}
 
-	// set rocksdb options
+func CheckRocksDB(p string) error {
+	p = path.Join(p, IndexDir)
+	opt := parseRocksDBOptionsFromEnv()
+	db, err := gorocksdb.OpenDb(rocksdbOptions(opt), p)
+	if err != nil {
+		return err
+	}
+	db.Close()
+	return nil
+}
+
+// set rocksdb options
+func rocksdbOptions(opt RocksDBOptions) *gorocksdb.Options {
+	opt.setDefaultIfEmpty()
 	opts := gorocksdb.NewDefaultOptions()
-	defer opts.Destroy()
 	if opt.DirectRead {
 		opts.SetUseDirectReads(true)
 	}
@@ -115,23 +207,136 @@ func NewRocksDBIndex(dir string, opt RocksDBOptions) (Index, error) {
 
 	opts.SetCreateIfMissing(true)
 	opts.SetMaxOpenFiles(opt.MaxOpenFiles)
+	return opts
+}
 
+func NewRocksDBIndex(dir string, opt RocksDBOptions) (Index, error) {
+	path := filepath.Join(opt.Root, dir, IndexDir)
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		if err := os.MkdirAll(path, 0755); err != nil {
+			return nil, err
+		}
+	} else if err != nil {
+		return nil, err
+	}
+
+	opts := rocksdbOptions(opt)
 	db, err := gorocksdb.OpenDb(opts, path)
 	if err != nil {
 		return nil, err
 	}
-	return &rocksDBIndex{
-		db: db,
-		wo: gorocksdb.NewDefaultWriteOptions(),
-		ro: gorocksdb.NewDefaultReadOptions(),
-	}, nil
+	index := rocksDBIndex{
+		db:   db,
+		wo:   gorocksdb.NewDefaultWriteOptions(),
+		ro:   gorocksdb.NewDefaultReadOptions(),
+		opts: opts,
+	}
+	index.directoryStatus.Store(directoryStatusUnknown)
+	if opt.CacheLevel > 0 {
+		index.directoryStatus.Store(directoryStatusIniting)
+		index.directory = newPathTrie()
+		index.cacheLevel = opt.CacheLevel
+		go index.initDirectoryCache()
+	}
+
+	// backup every interval
+	if opt.BackupRoot != "" && opt.BackupInterval != "" {
+		duration, err := time.ParseDuration(opt.BackupInterval)
+		if err != nil {
+			return nil, err
+		}
+		index.backupDir = pathJoin(opt.BackupRoot, dir, IndexBackupDir)
+		go index.backupEvery(index.backupDir, duration)
+	}
+
+	return &index, nil
+}
+
+// keep the trailing slash which indicates a directory
+func (db rocksDBIndex) segment(key string) []string {
+	endWithSlash := strings.HasSuffix(key, "/")
+	key = strings.Trim(key, "/")
+	if key == "" {
+		return nil
+	}
+	ss := strings.Split(key, "/")
+	segments := make([]string, db.cacheLevel)
+	for i := 0; i < db.cacheLevel && i < len(ss); i++ {
+		if i != len(ss)-1 || endWithSlash {
+			segments[i] = ss[i] + "/"
+		}
+	}
+	return segments
+}
+
+func (db *rocksDBIndex) initDirectoryCache() {
+	init := func() error {
+		defer catchPanic()
+		if db.closed {
+			return nil
+		}
+		ro := gorocksdb.NewDefaultReadOptions()
+		ro.SetFillCache(false)
+		defer ro.Destroy()
+		it := db.db.NewIterator(ro)
+		it.SeekToFirst()
+		defer it.Close()
+		for it = it; it.Valid(); it.Next() {
+			key := it.Key()
+			db.directory.put(db.segment(string(key.Data())))
+			key.Free()
+		}
+		if err := it.Err(); err != nil {
+			db.directoryStatus.Store(directoryStatusUnknown)
+			return err
+		}
+		db.directoryStatus.Store(directoryStatusWorking)
+		return nil
+	}
+
+	initJob()
+	result := make(chan error, 1)
+	globalBackupQueue <- job{
+		name:   fmt.Sprintf("init directory cache for rocksdb %s", db.db.Name()),
+		fn:     init,
+		result: result,
+		expire: time.Now().Add(time.Hour * 24 * 365), // never expire
+	}
+	<-result
+}
+
+func (db *rocksDBIndex) backupEvery(p string, interval time.Duration) {
+	initJob()
+	for _ = range time.Tick(interval) {
+		if db.closed {
+			return
+		}
+		result := make(chan error, 1)
+		globalBackupQueue <- job{
+			name: fmt.Sprintf("backup rocksdb %s to %s", db.db.Name(), p),
+			fn: func() error {
+				defer catchPanic()
+				if db.closed {
+					return nil
+				}
+				engine, err := gorocksdb.OpenBackupEngine(db.opts, p)
+				if err != nil {
+					return err
+				}
+				defer engine.Close()
+				return engine.CreateNewBackup(db.db)
+			},
+			result: result,
+			expire: time.Now().Add(interval),
+		}
+	}
 }
 
 func (db *rocksDBIndex) Get(key string) (fi FileInfo, err error) {
 	defer func(before time.Time) {
 		DiskOperationDuration.With(prometheus.Labels{"operation_type": "RocksDB-Get"}).Observe(time.Since(before).Seconds())
 	}(time.Now())
-	key = pathJoin(key)
+	// key = pathJoin(key)
 	value, err := db.db.GetBytes(db.ro, []byte(key))
 	if err != nil {
 		return fi, err
@@ -152,11 +357,20 @@ func (db *rocksDBIndex) Get(key string) (fi FileInfo, err error) {
 	return
 }
 
-func (db *rocksDBIndex) Set(key string, fi FileInfo) error {
+func (db *rocksDBIndex) Set(key string, fi FileInfo) (err error) {
 	defer func(before time.Time) {
 		DiskOperationDuration.With(prometheus.Labels{"operation_type": "RocksDB-Set"}).Observe(time.Since(before).Seconds())
 	}(time.Now())
-	key = pathJoin(key)
+
+	// directory cache
+	defer func() {
+		if err != nil || db.directoryStatus.Load().(string) == directoryStatusUnknown || db.directory == nil {
+			return
+		}
+		db.directory.put(db.segment(key))
+	}()
+
+	// key = pathJoin(key)
 	if strings.HasSuffix(key, xlJSONFile) {
 		return db.db.Put(db.wo, []byte(key), fi.data)
 	}
@@ -164,11 +378,12 @@ func (db *rocksDBIndex) Set(key string, fi FileInfo) error {
 	return db.db.Put(db.wo, []byte(key), data)
 }
 
-func (db *rocksDBIndex) Delete(keyPrefix string) error {
+func (db *rocksDBIndex) Delete(keyPrefix string) (err error) {
 	defer func(before time.Time) {
 		DiskOperationDuration.With(prometheus.Labels{"operation_type": "RocksDB-Delete"}).Observe(time.Since(before).Seconds())
 	}(time.Now())
-	keyPrefix = pathJoin(keyPrefix)
+
+	// keyPrefix = pathJoin(keyPrefix)
 	ro := gorocksdb.NewDefaultReadOptions()
 	ro.SetFillCache(false)
 	defer ro.Destroy()
@@ -199,6 +414,11 @@ func (db *rocksDBIndex) Delete(keyPrefix string) error {
 		if err := db.db.Delete(db.wo, key); err != nil {
 			return err
 		}
+		// delete from directory cache
+		// @TODO may be inconsistant if the directory has not been inited
+		if db.directoryStatus.Load().(string) == directoryStatusWorking && db.directory != nil {
+			db.directory.delete(db.segment(string(key)))
+		}
 	}
 	return nil
 }
@@ -208,7 +428,7 @@ func (db *rocksDBIndex) StatDir(key string) (fi FileInfo, err error) {
 	defer func(before time.Time) {
 		DiskOperationDuration.With(prometheus.Labels{"operation_type": "RocksDB-StatDir"}).Observe(time.Since(before).Seconds())
 	}(time.Now())
-	key = pathJoin(key)
+	// key = pathJoin(key)
 	if !strings.HasSuffix(key, "/") {
 		key += "/"
 	}
@@ -245,38 +465,51 @@ func (db *rocksDBIndex) ListN(keyPrefix string, count int) ([]string, error) {
 	defer func(before time.Time) {
 		DiskOperationDuration.With(prometheus.Labels{"operation_type": "RocksDB-ListN"}).Observe(time.Since(before).Seconds())
 	}(time.Now())
-	keyPrefix = pathJoin(keyPrefix)
+
+	// keyPrefix = pathJoin(keyPrefix)
+
+	// list from directory cache
+	if status := db.directoryStatus.Load().(string); status == directoryStatusWorking {
+		if seg := db.segment(keyPrefix); len(seg) < db.cacheLevel && db.directory != nil {
+			return db.directory.list(seg, count), nil
+		}
+	}
+
 	ro := gorocksdb.NewDefaultReadOptions()
 	ro.SetFillCache(false)
 	defer ro.Destroy()
 	it := db.db.NewIterator(ro)
 	defer it.Close()
 
-	var entries []string
+	var entryMap map[string]struct{}
+	if count <= 0 {
+		entryMap = make(map[string]struct{})
+	} else {
+		entryMap = make(map[string]struct{}, count)
+	}
 
 	addToEntries := func(entry string) {
-		found := false
-		for _, e := range entries {
-			if e == entry {
-				found = true
-				break
-			}
-		}
-		if found {
+		if _, ok := entryMap[entry]; ok {
 			return
 		}
-		entries = append(entries, entry)
+		entryMap[entry] = struct{}{}
 		count--
 	}
 
 	it.Seek([]byte(keyPrefix))
+	// the directory not found
+	if !it.Valid() {
+		return nil, os.ErrNotExist
+	}
+
 	for count != 0 {
-		if !it.Valid() {
+		if !it.ValidForPrefix([]byte(keyPrefix)) {
 			break
 		}
 		key := it.Key()
 		entry := subDir(string(key.Data()), keyPrefix)
 		if entry == "" {
+			key.Free()
 			it.Next()
 			continue
 		}
@@ -286,7 +519,7 @@ func (db *rocksDBIndex) ListN(keyPrefix string, count int) ([]string, error) {
 
 		for {
 			it.Next()
-			if !it.ValidForPrefix([]byte(path.Join(keyPrefix + entry))) {
+			if !it.ValidForPrefix([]byte(pathJoin(keyPrefix, entry))) {
 				break
 			}
 		}
@@ -295,27 +528,42 @@ func (db *rocksDBIndex) ListN(keyPrefix string, count int) ([]string, error) {
 	if err := it.Err(); err != nil {
 		return nil, err
 	}
+	entries := make([]string, 0, len(entryMap))
+	for k, _ := range entryMap {
+		entries = append(entries, k)
+	}
 	return entries, nil
 }
 
 func (db *rocksDBIndex) Close() error {
+	if db.closed {
+		return nil
+	}
 	db.db.Close()
 	db.ro.Destroy()
 	db.wo.Destroy()
+	db.opts.Destroy()
+	db.closed = true
 	return nil
 }
 
-func (db *rocksDBIndex) Remove() error {
+func (db *rocksDBIndex) Remove() (err error) {
 	defer func(before time.Time) {
 		DiskOperationDuration.With(prometheus.Labels{"operation_type": "Remove"}).Observe(time.Since(before).Seconds())
 	}(time.Now())
 	name := db.db.Name()
-	if err := db.Close(); err != nil {
-		return err
-	}
+	err = multierr.Append(err, db.Close())
+
 	opts := gorocksdb.NewDefaultOptions()
 	defer opts.Destroy()
-	return gorocksdb.DestroyDb(name, opts)
+	err = multierr.Append(err, gorocksdb.DestroyDb(name, opts))
+
+	err = multierr.Append(err, os.RemoveAll(path.Dir(strings.TrimRight(name, "/"))))
+
+	if db.backupDir != "" {
+		err = multierr.Append(err, os.RemoveAll(path.Dir(strings.TrimRight(db.backupDir, "/"))))
+	}
+	return err
 }
 
 // p1		p2	 	result

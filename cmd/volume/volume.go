@@ -11,11 +11,17 @@ import (
 	"strings"
 	"time"
 
+	"github.com/minio/minio/cmd/logger"
+	"go.uber.org/multierr"
 	"gopkg.in/bufio.v1"
 )
 
 const (
 	xlJSONFile = "xl.json"
+
+	IndexDir       = "index"
+	DataDir        = "data"
+	IndexBackupDir = "backup"
 )
 
 type Volume struct {
@@ -32,7 +38,7 @@ func NewVolume(ctx context.Context, dir string) (v *Volume, err error) {
 	v = new(Volume)
 	v.dir = dir
 	v.index = index
-	v.files, err = newFiles(ctx, path.Join(dir, "data"))
+	v.files, err = newFiles(ctx, path.Join(dir, DataDir))
 	if err != nil {
 		return nil, err
 	}
@@ -184,19 +190,18 @@ func (v *Volume) MakeDir(p string) error {
 }
 
 // remove the volume itself including data and index
-func (v *Volume) Remove() error {
-	if err := v.index.Remove(); err != nil {
-		return err
-	}
-	if err := v.files.remove(); err != nil {
-		return err
-	}
-	return os.RemoveAll(v.dir)
+// remove the backup dir also
+func (v *Volume) Remove() (err error) {
+	err = multierr.Append(err, v.index.Remove())
+	err = multierr.Append(err, v.files.remove())
+	err = multierr.Append(err, os.RemoveAll(v.dir))
+	return
 }
 
-func (v *Volume) Close() error {
-	v.files.close()
-	return v.index.Close()
+func (v *Volume) Close() (err error) {
+	err = multierr.Append(err, v.index.Close())
+	err = multierr.Append(err, v.files.close())
+	return
 }
 
 // pathJoin - like path.Join() but retains trailing "/" of the last element
@@ -212,4 +217,10 @@ func pathJoin(elem ...string) string {
 		return ps
 	}
 	return ps + trailingSlash
+}
+
+func catchPanic() {
+	if err := recover(); err != nil {
+		logger.Info("catch panic: %+v", err)
+	}
 }

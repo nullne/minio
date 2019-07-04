@@ -79,6 +79,13 @@ func (xl xlObjects) putObjectFast(ctx context.Context, bucket string, object str
 		return ObjectInfo{}, toObjectErr(errInvalidArgument)
 	}
 
+	// Check if an object is present as one of the parent dir.
+	// -- FIXME. (needs a new kind of lock).
+	// -- FIXME (this also causes performance issue when disks are down).
+	// if xl.parentDirIsObject(ctx, bucket, path.Dir(object)) {
+	// 	return ObjectInfo{}, toObjectErr(errFileParentIsFile, bucket, object)
+	// }
+
 	// if xl.isObject(bucket, object) {
 	// 	// Deny if WORM is enabled
 	// 	if globalWORMEnabled {
