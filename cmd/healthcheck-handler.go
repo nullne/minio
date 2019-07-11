@@ -40,7 +40,6 @@ func init() {
 			return
 		}
 		minioHealthGoroutineThreshold = i
-		logger.Info("set minioHealthGoroutineThreshold  to %d", i)
 	}
 }
 

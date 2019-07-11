@@ -52,37 +52,27 @@ func init() {
 			return
 		}
 		MaxFileSize = int64(i)
-		logger.Info("set file max size to %d", i)
 	}
 }
 
 func createFile(dir string, id int32) (f *file, err error) {
 	p := filepath.Join(dir, fmt.Sprintf("%d%s", id, dataFileSuffix))
-	defer func() {
-		if err != nil {
-			err = fmt.Errorf("failed to create file %s to write: %v", p, err)
-		}
-	}()
 	f = new(file)
 	f.id = id
 	f.path = p
 	f.data, err = os.OpenFile(p, os.O_WRONLY|os.O_CREATE, 0666)
 	if err != nil {
+		logger.LogIf(context.Background(), fmt.Errorf("failed to create file %s to write: %v", p, err))
 		return nil, err
 	}
 	if err := Fallocate(int(f.data.Fd()), 0, MaxFileSize); err != nil {
 		logger.LogIf(context.Background(), f.close())
 		return nil, err
 	}
-	return
+	return f, nil
 }
 
 func openFileToRead(p string) (f *file, err error) {
-	defer func() {
-		if err != nil {
-			err = fmt.Errorf("failed to open file %s for read: %v", p, err)
-		}
-	}()
 	name := path.Base(p)
 	n := strings.Index(name, dataFileSuffix)
 	if n == -1 {
@@ -199,7 +189,7 @@ func (f *file) write(data []byte) (int64, error) {
 	}
 	end, err := f.data.Seek(0, io.SeekEnd)
 	if err != nil {
-		return 0, fmt.Errorf("failed to seek volume to the end: %v", err)
+		return 0, err
 	}
 
 	defer func(w *os.File, off int64) {

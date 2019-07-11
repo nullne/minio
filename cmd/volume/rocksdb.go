@@ -2,12 +2,14 @@ package volume
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -22,6 +24,8 @@ type rocksDBIndex struct {
 	db *gorocksdb.DB
 	wo *gorocksdb.WriteOptions
 	ro *gorocksdb.ReadOptions
+
+	wg *sync.WaitGroup
 
 	opts *gorocksdb.Options
 
@@ -39,6 +43,10 @@ const (
 	directoryStatusUnknown string = "unknown"
 	directoryStatusIniting string = "initing"
 	directoryStatusWorking string = "working"
+)
+
+var (
+	ErrRocksDBClosed = errors.New("rocksdb has been closed already")
 )
 
 type RocksDBOptions struct {
@@ -229,6 +237,7 @@ func NewRocksDBIndex(dir string, opt RocksDBOptions) (Index, error) {
 		db:   db,
 		wo:   gorocksdb.NewDefaultWriteOptions(),
 		ro:   gorocksdb.NewDefaultReadOptions(),
+		wg:   &sync.WaitGroup{},
 		opts: opts,
 	}
 	index.directoryStatus.Store(directoryStatusUnknown)
@@ -272,6 +281,7 @@ func (db rocksDBIndex) segment(key string) []string {
 func (db *rocksDBIndex) initDirectoryCache() {
 	init := func() error {
 		defer catchPanic()
+		defer db.wg.Done()
 		if db.closed {
 			return nil
 		}
@@ -296,12 +306,14 @@ func (db *rocksDBIndex) initDirectoryCache() {
 
 	initJob()
 	result := make(chan error, 1)
-	globalBackupQueue <- job{
+	globalJobQueue <- job{
 		name:   fmt.Sprintf("init directory cache for rocksdb %s", db.db.Name()),
 		fn:     init,
 		result: result,
+		before: func() { db.wg.Add(1) },
 		expire: time.Now().Add(time.Hour * 24 * 365), // never expire
 	}
+	// may panic in rare case
 	<-result
 }
 
@@ -312,10 +324,12 @@ func (db *rocksDBIndex) backupEvery(p string, interval time.Duration) {
 			return
 		}
 		result := make(chan error, 1)
-		globalBackupQueue <- job{
-			name: fmt.Sprintf("backup rocksdb %s to %s", db.db.Name(), p),
+		globalJobQueue <- job{
+			name:   fmt.Sprintf("backup rocksdb %s to %s", db.db.Name(), p),
+			before: func() { db.wg.Add(1) },
 			fn: func() error {
 				defer catchPanic()
+				defer db.wg.Done()
 				if db.closed {
 					return nil
 				}
@@ -333,6 +347,9 @@ func (db *rocksDBIndex) backupEvery(p string, interval time.Duration) {
 }
 
 func (db *rocksDBIndex) Get(key string) (fi FileInfo, err error) {
+	if db.closed {
+		return fi, ErrRocksDBClosed
+	}
 	defer func(before time.Time) {
 		DiskOperationDuration.With(prometheus.Labels{"operation_type": "RocksDB-Get"}).Observe(time.Since(before).Seconds())
 	}(time.Now())
@@ -358,6 +375,9 @@ func (db *rocksDBIndex) Get(key string) (fi FileInfo, err error) {
 }
 
 func (db *rocksDBIndex) Set(key string, fi FileInfo) (err error) {
+	if db.closed {
+		return ErrRocksDBClosed
+	}
 	defer func(before time.Time) {
 		DiskOperationDuration.With(prometheus.Labels{"operation_type": "RocksDB-Set"}).Observe(time.Since(before).Seconds())
 	}(time.Now())
@@ -379,6 +399,9 @@ func (db *rocksDBIndex) Set(key string, fi FileInfo) (err error) {
 }
 
 func (db *rocksDBIndex) Delete(keyPrefix string) (err error) {
+	if db.closed {
+		return ErrRocksDBClosed
+	}
 	defer func(before time.Time) {
 		DiskOperationDuration.With(prometheus.Labels{"operation_type": "RocksDB-Delete"}).Observe(time.Since(before).Seconds())
 	}(time.Now())
@@ -425,6 +448,9 @@ func (db *rocksDBIndex) Delete(keyPrefix string) (err error) {
 
 // StatPath
 func (db *rocksDBIndex) StatDir(key string) (fi FileInfo, err error) {
+	if db.closed {
+		return fi, ErrRocksDBClosed
+	}
 	defer func(before time.Time) {
 		DiskOperationDuration.With(prometheus.Labels{"operation_type": "RocksDB-StatDir"}).Observe(time.Since(before).Seconds())
 	}(time.Now())
@@ -462,6 +488,9 @@ func (db *rocksDBIndex) StatDir(key string) (fi FileInfo, err error) {
 // count -1 means unlimited
 // listN list count entries under directory keyPrefix, not including itself
 func (db *rocksDBIndex) ListN(keyPrefix string, count int) ([]string, error) {
+	if db.closed {
+		return nil, ErrRocksDBClosed
+	}
 	defer func(before time.Time) {
 		DiskOperationDuration.With(prometheus.Labels{"operation_type": "RocksDB-ListN"}).Observe(time.Since(before).Seconds())
 	}(time.Now())
@@ -503,6 +532,9 @@ func (db *rocksDBIndex) ListN(keyPrefix string, count int) ([]string, error) {
 	}
 
 	for count != 0 {
+		if db.closed {
+			return nil, ErrRocksDBClosed
+		}
 		if !it.ValidForPrefix([]byte(keyPrefix)) {
 			break
 		}
@@ -518,6 +550,9 @@ func (db *rocksDBIndex) ListN(keyPrefix string, count int) ([]string, error) {
 		key.Free()
 
 		for {
+			if db.closed {
+				return nil, ErrRocksDBClosed
+			}
 			it.Next()
 			if !it.ValidForPrefix([]byte(pathJoin(keyPrefix, entry))) {
 				break
@@ -539,6 +574,7 @@ func (db *rocksDBIndex) Close() error {
 	if db.closed {
 		return nil
 	}
+	db.wg.Wait()
 	db.db.Close()
 	db.ro.Destroy()
 	db.wo.Destroy()

@@ -377,6 +377,7 @@ func serverMain(ctx *cli.Context) {
 	// Set uptime time after object layer has initialized.
 	globalBootTime = UTCNow()
 
+	logger.Info("engine started")
 	handleSignals()
 }
 

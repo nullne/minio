@@ -65,6 +65,7 @@ func handleSignals() {
 			logger.LogIf(context.Background(), err)
 		}
 
+		logger.Info("engine stoppd")
 		return (err == nil && oerr == nil)
 	}
 
