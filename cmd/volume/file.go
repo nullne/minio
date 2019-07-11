@@ -35,9 +35,26 @@ type file struct {
 }
 
 const (
-	MaxFileSize    int64 = 4 << 30 //4GB
-	dataFileSuffix       = ".data"
+	dataFileSuffix = ".data"
 )
+
+var (
+	MaxFileSize int64 = 4 << 30 //4GB
+)
+
+func init() {
+	if s := os.Getenv("MINIO_MAX_FILE_SIZE"); s != "" {
+		i, err := strconv.Atoi(s)
+		if err != nil {
+			return
+		}
+		if i > 4<<30 {
+			return
+		}
+		MaxFileSize = int64(i)
+		logger.Info("set file max size to %d", i)
+	}
+}
 
 func createFile(dir string, id int32) (f *file, err error) {
 	p := filepath.Join(dir, fmt.Sprintf("%d%s", id, dataFileSuffix))

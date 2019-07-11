@@ -18,6 +18,10 @@ const (
 	lockFileName = "LOCK"
 )
 
+var (
+	ErrWriteTimeout = errors.New("write file timeout")
+)
+
 type fileLock interface {
 	release() error
 }
@@ -241,7 +245,15 @@ func (fs *files) write(data []byte) (FileInfo, error) {
 		data: data,
 		resp: make(chan response),
 	}
-	fs.ch <- req
+
+	//@TODO change to context later
+	timer := time.NewTimer(time.Second * 10)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return FileInfo{}, ErrWriteTimeout
+	case fs.ch <- req:
+	}
 	resp := <-req.resp
 	return resp.info, resp.err
 }
