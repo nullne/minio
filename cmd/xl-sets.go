@@ -251,14 +251,6 @@ func (s *xlSets) GetDisks(setIndex int) func() []StorageAPI {
 		defer s.xlDisksMu.Unlock()
 		disks := make([]StorageAPI, s.drivesPerSet)
 		copy(disks, s.xlDisks[setIndex])
-		for _, disk := range disks {
-			if disk == nil {
-				continue
-			}
-			if !disk.IsOnline() {
-				fmt.Println(disk, "is offline")
-			}
-		}
 		return disks
 	}
 }

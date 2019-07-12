@@ -19,7 +19,6 @@ package cmd
 import (
 	"context"
 	"encoding/hex"
-	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
@@ -180,7 +179,6 @@ func isDirEmpty(dirname string) bool {
 func newPosix(path string) (*posix, error) {
 	var err error
 	if path, err = getValidPath(path); err != nil {
-		fmt.Println("invalid path", path, err)
 		return nil, err
 	}
 	fi, err := os.Stat(path)
