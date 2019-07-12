@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"math/rand"
 	"os"
 	"path"
 	"path/filepath"
@@ -45,14 +46,19 @@ const (
 	directoryStatusWorking string = "working"
 )
 
+const (
+	backupStartTimeLayout string = "15:04:05"
+)
+
 var (
 	ErrRocksDBClosed = errors.New("rocksdb has been closed already")
 )
 
 type RocksDBOptions struct {
-	Root           string
-	BackupRoot     string
-	BackupInterval string
+	Root               string
+	BackupRoot         string
+	BackupInterval     string
+	BackupStartBetween string // 02:00:00-04:00:00
 
 	DirectRead   bool
 	BloomFilter  bool
@@ -254,11 +260,44 @@ func NewRocksDBIndex(dir string, opt RocksDBOptions) (Index, error) {
 		if err != nil {
 			return nil, err
 		}
+
+		// start after time A which pick from time range randomly
+		var startAfter time.Duration
+		if ss := strings.Split(opt.BackupStartBetween, "-"); len(ss) == 2 {
+			startAfter, err = randomPickFromTimeRange(ss[0], ss[1])
+			if err != nil {
+				return nil, err
+			}
+		}
 		index.backupDir = pathJoin(opt.BackupRoot, dir, IndexBackupDir)
-		go index.backupEvery(index.backupDir, duration)
+		go index.backupEvery(index.backupDir, duration, startAfter)
 	}
 
 	return &index, nil
+}
+
+func randomPickFromTimeRange(sStart, sEnd string) (time.Duration, error) {
+	start, err := time.Parse(backupStartTimeLayout, sStart)
+	if err != nil {
+		return 0, err
+	}
+
+	end, err := time.Parse(backupStartTimeLayout, sEnd)
+	if err != nil {
+		return 0, err
+	}
+	if start.After(end) {
+		return 0, errors.New("invalid backup start time range")
+	}
+	rand.Seed(int64(time.Now().Nanosecond()))
+	start = start.Add(time.Duration(rand.Int63n(end.Sub(start).Nanoseconds())))
+	now := time.Now()
+	y, m, d := now.Date()
+	start = time.Date(y, m, d, start.Hour(), start.Minute(), start.Second(), start.Nanosecond(), now.Location())
+	if start.Before(now) {
+		start = start.Add(24 * time.Hour)
+	}
+	return start.Sub(now), nil
 }
 
 // keep the trailing slash which indicates a directory
@@ -317,8 +356,24 @@ func (db *rocksDBIndex) initDirectoryCache() {
 	<-result
 }
 
-func (db *rocksDBIndex) backupEvery(p string, interval time.Duration) {
-	initJob()
+func (db *rocksDBIndex) backupFn(p string) func() error {
+	return func() error {
+		defer catchPanic()
+		defer db.wg.Done()
+		if db.closed {
+			return nil
+		}
+		engine, err := gorocksdb.OpenBackupEngine(db.opts, p)
+		if err != nil {
+			return err
+		}
+		defer engine.Close()
+		return engine.CreateNewBackup(db.db)
+	}
+}
+
+func (db *rocksDBIndex) backupEvery(p string, interval, startAfter time.Duration) {
+	time.Sleep(startAfter)
 	for _ = range time.Tick(interval) {
 		if db.closed {
 			return
@@ -327,19 +382,7 @@ func (db *rocksDBIndex) backupEvery(p string, interval time.Duration) {
 		globalJobQueue <- job{
 			name:   fmt.Sprintf("backup rocksdb %s to %s", db.db.Name(), p),
 			before: func() { db.wg.Add(1) },
-			fn: func() error {
-				defer catchPanic()
-				defer db.wg.Done()
-				if db.closed {
-					return nil
-				}
-				engine, err := gorocksdb.OpenBackupEngine(db.opts, p)
-				if err != nil {
-					return err
-				}
-				defer engine.Close()
-				return engine.CreateNewBackup(db.db)
-			},
+			fn:     db.backupFn(p),
 			result: result,
 			expire: time.Now().Add(interval),
 		}

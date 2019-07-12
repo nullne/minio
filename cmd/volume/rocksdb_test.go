@@ -1,6 +1,10 @@
 package volume
 
-import "testing"
+import (
+	"fmt"
+	"strings"
+	"testing"
+)
 
 func TestSubDir(t *testing.T) {
 	cases := []struct {
@@ -22,5 +26,32 @@ func TestSubDir(t *testing.T) {
 		if r != c.res {
 			t.Errorf("p1: %s, p2: %s, wanna: %s, got: %s", c.p1, c.p2, c.res, r)
 		}
+	}
+}
+
+func TestRandomPickFromTimeRange(t *testing.T) {
+	cases := []struct {
+		p   string
+		err error
+	}{
+		{"15:30:00-16:30:00", nil},
+		{"15:30:00-16:30:00", nil},
+		{"15:30:00-16:30:00", nil},
+		{"15:30:00-16:30:00", nil},
+		{"15:30:00-16:30:00", nil},
+		{"15:30:00-16:30:00", nil},
+		{"15:30:00-16:30:00", nil},
+		{"15:30:00-16:30:00", nil},
+		{"15:30:00-16:30:00", nil},
+		{"15:30:00-16:30:00", nil},
+	}
+
+	for _, c := range cases {
+		d, err := randomPickFromTimeRange(strings.Split(c.p, "-"))
+		if err != c.err {
+			t.Errorf("range: %s, wanna: %v, got: %v", c.p, c.err, err)
+		}
+		// check the result manully
+		fmt.Println(d)
 	}
 }
