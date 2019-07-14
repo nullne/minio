@@ -84,6 +84,10 @@ func parseRocksDBOptionsFromEnv() RocksDBOptions {
 		opt.BackupRoot = s
 	}
 
+	if s := getenv("MINIO_ROCKSDB_BACKUP_START_BETWEEN"); s != "" {
+		opt.BackupStartBetween = s
+	}
+
 	if s := getenv("MINIO_ROCKSDB_BACKUP_INTERVAL"); s != "" {
 		opt.BackupInterval = s
 	}
@@ -373,6 +377,7 @@ func (db *rocksDBIndex) backupFn(p string) func() error {
 }
 
 func (db *rocksDBIndex) backupEvery(p string, interval, startAfter time.Duration) {
+	logger.Info("sleep %s before backup", startAfter.String())
 	time.Sleep(startAfter)
 	for _ = range time.Tick(interval) {
 		if db.closed {
