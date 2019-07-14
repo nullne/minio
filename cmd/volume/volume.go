@@ -2,7 +2,6 @@ package volume
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -121,13 +120,9 @@ func (v *Volume) ReadFileStream(key string, offset, length int64) (io.ReadCloser
 
 func (v *Volume) WriteAll(key string, size int64, r io.Reader) error {
 	// io.Reader isn't predictable
-	bs, err := ioutil.ReadAll(r)
-	if err != nil {
+	bs := make([]byte, size)
+	if _, err := io.ReadFull(r, bs); err != nil {
 		return err
-	}
-
-	if int64(len(bs)) != size {
-		return errors.New("size mismatch")
 	}
 
 	if strings.HasSuffix(key, xlJSONFile) {

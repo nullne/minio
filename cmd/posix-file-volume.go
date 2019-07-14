@@ -69,8 +69,11 @@ func getFileVolume(path string) (*fv.Volume, error) {
 // @TODO check validity of delete
 func closeFileVolume() error {
 	globalFileVolumes.volumes.Range(func(key, value interface{}) bool {
-		value.(*fv.Volume).Close()
+		if err := value.(*fv.Volume).Close(); err != nil {
+			logger.LogIf(context.Background(), err)
+		}
 		globalFileVolumes.volumes.Delete(key)
+		logger.Info("volume %s has been closed gracefully", key)
 		return true
 	})
 	return nil
@@ -155,7 +158,8 @@ func (s *posix) readFileStreamFromFileVolume(volume, path string, offset, length
 	return vol.ReadFileStream(path, offset, length)
 }
 
-func (s *posix) writeAllToFileVolume(volume, path string, buf []byte) error {
+func (s *posix) writeAllToFileVolume(volume, path string, buf []byte) (err error) {
+	defer func() { err = convertError(err, false) }()
 	vol, err := getFileVolume(filepath.Join(s.diskPath, volume))
 	if err != nil {
 		return err
@@ -163,7 +167,8 @@ func (s *posix) writeAllToFileVolume(volume, path string, buf []byte) error {
 	return vol.WriteAll(path, int64(len(buf)), bufio.NewBuffer(buf))
 }
 
-func (s *posix) createFileToFileVolume(volume, path string, fileSize int64, r io.Reader) error {
+func (s *posix) createFileToFileVolume(volume, path string, fileSize int64, r io.Reader) (err error) {
+	defer func() { err = convertError(err, false) }()
 	vol, err := getFileVolume(filepath.Join(s.diskPath, volume))
 	if err != nil {
 		return err

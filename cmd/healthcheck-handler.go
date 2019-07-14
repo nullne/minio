@@ -21,13 +21,27 @@ import (
 	"net/http"
 	"os"
 	"runtime"
+	"strconv"
 
 	"github.com/minio/minio/cmd/logger"
 )
 
-const (
+var (
 	minioHealthGoroutineThreshold = 1000
 )
+
+func init() {
+	if s := os.Getenv("MINIO_HEALTH_GO_ROUTINE_THRESHOLD"); s != "" {
+		i, err := strconv.Atoi(s)
+		if err != nil {
+			return
+		}
+		if i <= 0 {
+			return
+		}
+		minioHealthGoroutineThreshold = i
+	}
+}
 
 // ReadinessCheckHandler -- checks if there are more than threshold number of goroutines running,
 // returns service unavailable.

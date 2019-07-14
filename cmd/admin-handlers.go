@@ -840,6 +840,7 @@ func (a adminAPIHandlers) HealObjectHandler(w http.ResponseWriter, r *http.Reque
 	// }
 	if err != nil {
 		writeErrorResponseJSON(ctx, w, toAdminAPIErr(ctx, err), r.URL)
+		return
 	}
 	bs, err := json.Marshal(hri)
 	if err != nil {

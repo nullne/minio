@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path"
+	"sort"
 	"strings"
 
 	"github.com/minio/cli"
@@ -43,7 +44,7 @@ FLAGS:
   {{end}}{{end}}
 EXAMPLES:
    1. restore the index from backup on the specified drives (same as the volume path when start minio server):
-      $ {{.HelpName}} /data{1..12}
+      $ {{.HelpName}} /data1
 `,
 }
 
@@ -71,6 +72,7 @@ func mainHealDumpObjects(ctx *cli.Context) {
 			defer file.Close()
 			writer = file
 		}
+		var buckets []string
 		for _, info := range fileInfos {
 			if !info.IsDir() {
 				continue
@@ -79,6 +81,10 @@ func mainHealDumpObjects(ctx *cli.Context) {
 			if isMinioMetaBucketName(bucket) {
 				continue
 			}
+			buckets = append(buckets, bucket)
+		}
+		sort.Strings(buckets)
+		for _, bucket := range buckets {
 			ch, err := volume.DumpObjectsFromRocksDB(path.Join(dir, bucket))
 			if err != nil {
 				logger.Fatal(err, "failed to dump objects")

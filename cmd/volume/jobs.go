@@ -10,21 +10,28 @@ import (
 type job struct {
 	name   string
 	fn     func() error
+	before func()
 	result chan error // make sure the capacity is one which won't block
 	expire time.Time
 }
 
-var globalBackupQueue = make(chan job, 100)
+var globalJobQueue = make(chan job, 100)
 var once = sync.Once{}
 
 func initJob() {
 	once.Do(func() {
 		go func() {
-			for job := range globalBackupQueue {
+			for job := range globalJobQueue {
+				if job.fn == nil {
+					return
+				}
 				logger.Info("start run job: %s", job.name)
 				if time.Now().After(job.expire) {
 					logger.Info("job %s was expired, skipped", job.name)
 					continue
+				}
+				if job.before != nil {
+					job.before()
 				}
 				err := job.fn()
 				job.result <- err
