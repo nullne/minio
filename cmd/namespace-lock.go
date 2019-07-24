@@ -42,8 +42,8 @@ var globalNSMutex *nsLockMap
 // Global lock server one per server.
 var globalLockServer *lockRPCReceiver
 
-// Instance of dsync for distributed clients.
-var globalDsync *dsync.Dsync
+// Instance of dsyncs for distributed clients.
+var globalDsyncs []*dsync.Dsync
 
 // RWLocker - locker interface to introduce GetRLock, RUnlock.
 type RWLocker interface {
@@ -51,6 +51,29 @@ type RWLocker interface {
 	Unlock()
 	GetRLock(timeout *dynamicTimeout) (timedOutErr error)
 	RUnlock()
+}
+
+// dsyncNew - initialize sets based dsync clients for performing lock operations.
+func dsyncNew(endpoints EndpointList, setCount int) ([]*dsync.Dsync, error) {
+	sets := make([]EndpointList, setCount)
+	for _, endpoint := range endpoints {
+		sets[endpoint.SetIndex] = append(sets[endpoint.SetIndex], endpoint)
+	}
+	dsyncs := make([]*dsync.Dsync, setCount)
+	for i, es := range sets {
+		lockers, mynode := newDsyncNodes(es)
+		fmt.Printf("%d: ", i)
+		for _, l := range lockers {
+			fmt.Printf("%s\t", l.ServerAddr())
+		}
+		fmt.Println("")
+		ds, err := dsync.New(lockers, mynode)
+		if err != nil {
+			return nil, err
+		}
+		dsyncs[i] = ds
+	}
+	return dsyncs, nil
 }
 
 // RWLockerSync - internal locker interface.
@@ -145,7 +168,7 @@ func (n *nsLockMap) lock(volume, path string, lockSource, opsID string, readLock
 		n.lockMap[param] = &nsLock{
 			RWLockerSync: func() RWLockerSync {
 				if n.isDistXL {
-					return dsync.NewDRWMutex(pathJoin(volume, path), globalDsync)
+					return dsync.NewDRWMutex(pathJoin(volume, path), n.getHashDsync(path))
 				}
 				return &lsync.LRWMutex{}
 			}(),
@@ -254,7 +277,7 @@ func (n *nsLockMap) ForceUnlock(volume, path string) {
 	//   are blocking can now proceed as normal and any new locks will also
 	//   participate normally.
 	if n.isDistXL { // For distributed mode, broadcast ForceUnlock message.
-		dsync.NewDRWMutex(pathJoin(volume, path), globalDsync).ForceUnlock()
+		dsync.NewDRWMutex(pathJoin(volume, path), n.getHashDsync(path)).ForceUnlock()
 	}
 
 	// Remove lock from the map.
@@ -265,6 +288,14 @@ func (n *nsLockMap) ForceUnlock(volume, path string) {
 type lockInstance struct {
 	ns                  *nsLockMap
 	volume, path, opsID string
+}
+
+func (n *nsLockMap) getHashDsync(path string) *dsync.Dsync {
+	return globalDsyncs[n.getHashIndex(path)]
+}
+
+func (n *nsLockMap) getHashIndex(path string) int {
+	return hashKey("CRCMOD", path, len(globalDsyncs))
 }
 
 // NewNSLock - returns a lock instance for a given volume and

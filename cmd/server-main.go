@@ -19,7 +19,6 @@ package cmd
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
@@ -27,7 +26,6 @@ import (
 	"syscall"
 
 	"github.com/minio/cli"
-	"github.com/minio/dsync"
 	xhttp "github.com/minio/minio/cmd/http"
 	"github.com/minio/minio/cmd/logger"
 	"github.com/minio/minio/pkg/certs"
@@ -153,12 +151,6 @@ func serverHandleCmdArgs(ctx *cli.Context) {
 	var setupType SetupType
 	var err error
 
-	if len(ctx.Args()) > serverCommandLineArgsMax {
-		uErr := uiErrInvalidErasureEndpoints(nil).Msg(fmt.Sprintf("Invalid total number of endpoints (%d) passed, supported upto 32 unique arguments",
-			len(ctx.Args())))
-		logger.FatalIf(uErr, "Unable to validate passed endpoints")
-	}
-
 	endpoints := strings.Fields(os.Getenv("MINIO_ENDPOINTS"))
 	if len(endpoints) > 0 {
 		globalMinioAddr, globalEndpoints, setupType, globalXLSetCount, globalXLSetDriveCount, err = createServerEndpoints(globalCLIContext.Addr, endpoints...)
@@ -274,7 +266,7 @@ func serverMain(ctx *cli.Context) {
 
 	// Set nodes for dsync for distributed setup.
 	if globalIsDistXL {
-		globalDsync, err = dsync.New(newDsyncNodes(globalEndpoints))
+		globalDsyncs, err = dsyncNew(globalEndpoints, globalXLSetCount)
 		if err != nil {
 			logger.Fatal(err, "Unable to initialize distributed locking on %s", globalEndpoints)
 		}
