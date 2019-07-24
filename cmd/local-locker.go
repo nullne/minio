@@ -22,6 +22,8 @@ import (
 	"time"
 
 	"github.com/minio/dsync"
+	fv "github.com/minio/minio/cmd/volume"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 // lockRequesterInfo stores various info from the client for each lock that is requested.
@@ -57,6 +59,9 @@ func (l *localLocker) ServiceEndpoint() string {
 }
 
 func (l *localLocker) Lock(args dsync.LockArgs) (reply bool, err error) {
+	defer func(before time.Time) {
+		fv.DiskOperationDuration.With(prometheus.Labels{"operation_type": "local-Lock"}).Observe(time.Since(before).Seconds())
+	}(time.Now())
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 	_, isLockTaken := l.lockMap[args.Resource]
@@ -78,6 +83,9 @@ func (l *localLocker) Lock(args dsync.LockArgs) (reply bool, err error) {
 }
 
 func (l *localLocker) Unlock(args dsync.LockArgs) (reply bool, err error) {
+	defer func(before time.Time) {
+		fv.DiskOperationDuration.With(prometheus.Labels{"operation_type": "local-Unlock"}).Observe(time.Since(before).Seconds())
+	}(time.Now())
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 	var lri []lockRequesterInfo
@@ -97,6 +105,9 @@ func (l *localLocker) Unlock(args dsync.LockArgs) (reply bool, err error) {
 }
 
 func (l *localLocker) RLock(args dsync.LockArgs) (reply bool, err error) {
+	defer func(before time.Time) {
+		fv.DiskOperationDuration.With(prometheus.Labels{"operation_type": "local-RLock"}).Observe(time.Since(before).Seconds())
+	}(time.Now())
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 	lrInfo := lockRequesterInfo{
@@ -122,6 +133,9 @@ func (l *localLocker) RLock(args dsync.LockArgs) (reply bool, err error) {
 }
 
 func (l *localLocker) RUnlock(args dsync.LockArgs) (reply bool, err error) {
+	defer func(before time.Time) {
+		fv.DiskOperationDuration.With(prometheus.Labels{"operation_type": "local-RUnlock"}).Observe(time.Since(before).Seconds())
+	}(time.Now())
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 	var lri []lockRequesterInfo

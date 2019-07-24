@@ -18,9 +18,12 @@ package cmd
 
 import (
 	"crypto/tls"
+	"time"
 
 	"github.com/minio/dsync"
+	fv "github.com/minio/minio/cmd/volume"
 	xnet "github.com/minio/minio/pkg/net"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 // LockRPCClient is authenticable lock RPC client compatible to dsync.NetLocker
@@ -42,24 +45,36 @@ func (lockRPC *LockRPCClient) ServiceEndpoint() string {
 
 // RLock calls read lock RPC.
 func (lockRPC *LockRPCClient) RLock(args dsync.LockArgs) (reply bool, err error) {
+	defer func(before time.Time) {
+		fv.DiskOperationDuration.With(prometheus.Labels{"operation_type": "client-RLock"}).Observe(time.Since(before).Seconds())
+	}(time.Now())
 	err = lockRPC.Call(lockServiceName+".RLock", &LockArgs{LockArgs: args}, &reply)
 	return reply, err
 }
 
 // Lock calls write lock RPC.
 func (lockRPC *LockRPCClient) Lock(args dsync.LockArgs) (reply bool, err error) {
+	defer func(before time.Time) {
+		fv.DiskOperationDuration.With(prometheus.Labels{"operation_type": "client-Lock"}).Observe(time.Since(before).Seconds())
+	}(time.Now())
 	err = lockRPC.Call(lockServiceName+".Lock", &LockArgs{LockArgs: args}, &reply)
 	return reply, err
 }
 
 // RUnlock calls read unlock RPC.
 func (lockRPC *LockRPCClient) RUnlock(args dsync.LockArgs) (reply bool, err error) {
+	defer func(before time.Time) {
+		fv.DiskOperationDuration.With(prometheus.Labels{"operation_type": "client-RUnlock"}).Observe(time.Since(before).Seconds())
+	}(time.Now())
 	err = lockRPC.Call(lockServiceName+".RUnlock", &LockArgs{LockArgs: args}, &reply)
 	return reply, err
 }
 
 // Unlock calls write unlock RPC.
 func (lockRPC *LockRPCClient) Unlock(args dsync.LockArgs) (reply bool, err error) {
+	defer func(before time.Time) {
+		fv.DiskOperationDuration.With(prometheus.Labels{"operation_type": "client-Unlock"}).Observe(time.Since(before).Seconds())
+	}(time.Now())
 	err = lockRPC.Call(lockServiceName+".Unlock", &LockArgs{LockArgs: args}, &reply)
 	return reply, err
 }
