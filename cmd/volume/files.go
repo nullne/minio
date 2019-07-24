@@ -8,6 +8,7 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -20,7 +21,6 @@ const (
 
 var (
 	ErrWriteTimeout = errors.New("write file timeout")
-	errNil          = errors.New("")
 )
 
 type fileLock interface {
@@ -33,8 +33,21 @@ type files struct {
 	ch              chan request
 	writableFile    *file
 	chWritableFile  chan *file
-	createFileError atomic.Value // error to create new file
+	createFileError error
+	createFileLock  sync.RWMutex
 	flock           fileLock
+}
+
+func (f *files) setCreateFileError(e error) {
+	f.createFileLock.Lock()
+	defer f.createFileLock.Unlock()
+	f.createFileError = e
+}
+
+func (f *files) getCreateFileError() error {
+	f.createFileLock.RLock()
+	defer f.createFileLock.RUnlock()
+	return f.createFileError
 }
 
 func newFiles(ctx context.Context, dir string) (fs *files, err error) {
@@ -145,7 +158,7 @@ func (fs *files) prepareFileToWrite(ctx context.Context) {
 		wr, err := createFile(fs.dir, fid)
 		if err != nil {
 			logger.LogIf(ctx, err)
-			fs.createFileError.Store(err)
+			fs.setCreateFileError(err)
 			// if the error is no space, no need to retry
 			if isSysErrNoSpace(err) {
 				return
@@ -158,7 +171,7 @@ func (fs *files) prepareFileToWrite(ctx context.Context) {
 			f, err := openFileToRead(wr.path)
 			if err != nil {
 				logger.LogIf(ctx, err)
-				fs.createFileError.Store(err)
+				fs.setCreateFileError(err)
 				time.Sleep(10 * time.Second)
 				continue
 			}
@@ -166,7 +179,7 @@ func (fs *files) prepareFileToWrite(ctx context.Context) {
 		}
 
 		fs.files.Store(files)
-		fs.createFileError.Store(errNil)
+		fs.setCreateFileError(nil)
 
 		select {
 		case fs.chWritableFile <- wr:
@@ -207,8 +220,8 @@ retry:
 		}
 		fs.writableFile = f
 	default:
-		err := fs.createFileError.Load()
-		if err == nil || err.(error) == errNil {
+		err := fs.getCreateFileError()
+		if err == nil {
 			if sleepDuration > time.Second*30 {
 				return nil, errors.New("wait more than 30s and cannot get file to write")
 			}
@@ -217,8 +230,8 @@ retry:
 			sleepDuration *= 2
 			goto retry
 		} else {
-			logger.LogIf(ctx, fmt.Errorf("cannot get file to write: %s", err.(error).Error()))
-			return nil, err.(error)
+			logger.LogIf(ctx, fmt.Errorf("cannot get file to write: %s", err.Error()))
+			return nil, err
 		}
 	}
 	return fs.writableFile, nil
