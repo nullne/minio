@@ -435,6 +435,7 @@ func CreateEndpoints(serverAddr string, args ...[]string) (string, EndpointList,
 	{
 		localPathSet := set.CreateStringSet()
 		for _, endpoint := range endpoints {
+			fmt.Println(endpoint.String(), endpoint.IsLocal)
 			if !endpoint.IsLocal {
 				continue
 			}

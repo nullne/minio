@@ -56,13 +56,26 @@ type RWLocker interface {
 // dsyncNew - initialize sets based dsync clients for performing lock operations.
 func dsyncNew(endpoints EndpointList, setCount int) ([]*dsync.Dsync, error) {
 	sets := make([]EndpointList, setCount)
-	for _, endpoint := range endpoints {
+	var localEndpoint Endpoint // make sure local endpoint join the dsync
+	for i, endpoint := range endpoints {
+		if endpoint.IsLocal {
+			localEndpoint = endpoints[i]
+		}
 		sets[endpoint.SetIndex] = append(sets[endpoint.SetIndex], endpoint)
 	}
+	fmt.Println("sets")
+	for i, es := range sets {
+		fmt.Printf("%d: \t", i)
+		for _, e := range es {
+			fmt.Printf("%s, ", e.String())
+		}
+		fmt.Println("")
+	}
+	fmt.Println("dsyncs")
 	dsyncs := make([]*dsync.Dsync, setCount)
 	for i, es := range sets {
-		lockers, mynode := newDsyncNodes(es)
-		fmt.Printf("%d: ", i)
+		lockers, mynode := newDsyncNodes(append(es, localEndpoint))
+		fmt.Printf("%d-%d: ", i, mynode)
 		for _, l := range lockers {
 			fmt.Printf("%s\t", l.ServerAddr())
 		}

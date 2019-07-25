@@ -273,5 +273,11 @@ func createServerEndpoints(serverAddr string, args ...string) (string, EndpointL
 		return serverAddr, nil, -1, 0, 0, err
 	}
 
+	fmt.Println("endpoints")
+	for _, e := range endpoints {
+		fmt.Printf("%s(%v) ", e.String(), e.IsLocal)
+	}
+	fmt.Println("")
+
 	return serverAddr, endpoints, setupType, len(setArgs), len(setArgs[0]), nil
 }
