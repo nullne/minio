@@ -305,6 +305,9 @@ func (li *lockInstance) GetRLock(timeout *dynamicTimeout) (timedOutErr error) {
 	defer func(before time.Time) {
 		fv.DiskOperationDuration.With(prometheus.Labels{"operation_type": "GetRLock"}).Observe(time.Since(before).Seconds())
 	}(time.Now())
+	if !isMinioMetaBucketName(li.volume) {
+		return nil
+	}
 	lockSource := getSource()
 	start := UTCNow()
 	readLock := true
@@ -321,6 +324,9 @@ func (li *lockInstance) RUnlock() {
 	defer func(before time.Time) {
 		fv.DiskOperationDuration.With(prometheus.Labels{"operation_type": "RUnlock"}).Observe(time.Since(before).Seconds())
 	}(time.Now())
+	if !isMinioMetaBucketName(li.volume) {
+		return
+	}
 	readLock := true
 	li.ns.unlock(li.volume, li.path, li.opsID, readLock)
 }
