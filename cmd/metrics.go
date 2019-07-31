@@ -31,7 +31,7 @@ var (
 		prometheus.HistogramOpts{
 			Name:    "minio_http_requests_duration_seconds",
 			Help:    "Time taken by requests served by current Minio server instance",
-			Buckets: []float64{.001, .005, .01, .5, .1, 1},
+			Buckets: []float64{.001, .005, .01, .05, .1, 1},
 		},
 		[]string{"request_type"},
 	)
