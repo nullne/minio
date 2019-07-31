@@ -159,21 +159,19 @@ func (xl xlObjects) GetObjectNInfo(ctx context.Context, bucket, object string, r
 	var nsUnlocker = func() {}
 
 	// Acquire lock
-	if isMinioMetaBucketName(bucket) {
-		if lockType != noLock {
-			lock := xl.nsMutex.NewNSLock(bucket, object)
-			switch lockType {
-			case writeLock:
-				if err = lock.GetLock(globalObjectTimeout); err != nil {
-					return nil, err
-				}
-				nsUnlocker = lock.Unlock
-			case readLock:
-				if err = lock.GetRLock(globalObjectTimeout); err != nil {
-					return nil, err
-				}
-				nsUnlocker = lock.RUnlock
+	if lockType != noLock {
+		lock := xl.nsMutex.NewNSLock(bucket, object)
+		switch lockType {
+		case writeLock:
+			if err = lock.GetLock(globalObjectTimeout); err != nil {
+				return nil, err
 			}
+			nsUnlocker = lock.Unlock
+		case readLock:
+			if err = lock.GetRLock(globalObjectTimeout); err != nil {
+				return nil, err
+			}
+			nsUnlocker = lock.RUnlock
 		}
 	}
 
@@ -229,13 +227,11 @@ func (xl xlObjects) GetObjectNInfo(ctx context.Context, bucket, object string, r
 // length indicates the total length of the object.
 func (xl xlObjects) GetObject(ctx context.Context, bucket, object string, startOffset int64, length int64, writer io.Writer, etag string, opts ObjectOptions) error {
 	// Lock the object before reading.
-	if isMinioMetaBucketName(bucket) {
-		objectLock := xl.nsMutex.NewNSLock(bucket, object)
-		if err := objectLock.GetRLock(globalObjectTimeout); err != nil {
-			return err
-		}
-		defer objectLock.RUnlock()
+	objectLock := xl.nsMutex.NewNSLock(bucket, object)
+	if err := objectLock.GetRLock(globalObjectTimeout); err != nil {
+		return err
 	}
+	defer objectLock.RUnlock()
 	return xl.getObject(ctx, bucket, object, startOffset, length, writer, etag, opts)
 }
 
@@ -414,13 +410,11 @@ func (xl xlObjects) getObjectInfoDir(ctx context.Context, bucket, object string)
 // GetObjectInfo - reads object metadata and replies back ObjectInfo.
 func (xl xlObjects) GetObjectInfo(ctx context.Context, bucket, object string, opts ObjectOptions) (oi ObjectInfo, e error) {
 	// Lock the object before reading.
-	if isMinioMetaBucketName(bucket) {
-		objectLock := xl.nsMutex.NewNSLock(bucket, object)
-		if err := objectLock.GetRLock(globalObjectTimeout); err != nil {
-			return oi, err
-		}
-		defer objectLock.RUnlock()
+	objectLock := xl.nsMutex.NewNSLock(bucket, object)
+	if err := objectLock.GetRLock(globalObjectTimeout); err != nil {
+		return oi, err
 	}
+	defer objectLock.RUnlock()
 
 	if err := checkGetObjArgs(ctx, bucket, object); err != nil {
 		return oi, err
