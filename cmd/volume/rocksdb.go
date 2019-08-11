@@ -377,6 +377,7 @@ func (db *rocksDBIndex) backupFn(p string) func() error {
 }
 
 func (db *rocksDBIndex) backupEvery(p string, interval, startAfter time.Duration) {
+	initJob()
 	logger.Info("sleep %s before backup", startAfter.String())
 	time.Sleep(startAfter)
 	for _ = range time.Tick(interval) {
