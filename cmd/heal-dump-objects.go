@@ -11,7 +11,7 @@ import (
 
 	"github.com/minio/cli"
 	"github.com/minio/minio/cmd/logger"
-	"github.com/minio/minio/cmd/volume"
+	fv "github.com/minio/minio/cmd/volume"
 )
 
 var healDumpObjectsFlags = []cli.Flag{
@@ -85,7 +85,7 @@ func mainHealDumpObjects(ctx *cli.Context) {
 		}
 		sort.Strings(buckets)
 		for _, bucket := range buckets {
-			ch, err := volume.DumpObjectsFromRocksDB(path.Join(dir, bucket))
+			ch, err := fv.DumpObjectsFromRocksDB(path.Join(dir, bucket))
 			if err != nil {
 				logger.Fatal(err, "failed to dump objects")
 			}

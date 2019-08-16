@@ -7,7 +7,7 @@ import (
 
 	"github.com/minio/cli"
 	"github.com/minio/minio/cmd/logger"
-	"github.com/minio/minio/cmd/volume"
+	fv "github.com/minio/minio/cmd/volume"
 )
 
 var healRestoreFlags = []cli.Flag{
@@ -70,7 +70,7 @@ func mainHealRestoreIndex(ctx *cli.Context) {
 			if isMinioMetaBucketName(bucket) {
 				continue
 			}
-			if err := volume.CheckRocksDB(path.Join(root, drive, bucket)); err == nil {
+			if err := fv.CheckRocksDB(path.Join(root, drive, bucket)); err == nil {
 				logger.Info("no need to restore %s\n", path.Join(root, drive, bucket))
 				continue
 			} else if strings.Contains(err.Error(), "Resource temporarily unavailable") {
@@ -78,7 +78,7 @@ func mainHealRestoreIndex(ctx *cli.Context) {
 			} else {
 				logger.Info("rocksdb %s  got error: %v, is going to restore from backup\n", path.Join(root, drive, bucket), err)
 			}
-			if err := volume.RestoreRocksDBFromBackup(path.Join(backupDir, bucket), path.Join(root, drive, bucket)); err != nil {
+			if err := fv.RestoreRocksDBFromBackup(path.Join(backupDir, bucket), path.Join(root, drive, bucket)); err != nil {
 				logger.Info("%+v", err)
 			}
 		}
