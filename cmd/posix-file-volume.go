@@ -293,6 +293,9 @@ func (s *posix) renameFileFromFileVolume(srcVolume, srcPath, dstVolume, dstPath 
 		if err := s.MakeVol(path.Dir(pathJoin(dstVolume, dstPath))); err != nil && err != errVolumeExists {
 			return err
 		}
+		if err := s.DeleteVol(path.Dir(pathJoin(srcVolume, srcPath))); err != nil {
+			return err
+		}
 		return nil
 	}
 	for _, e := range entries {
@@ -318,6 +321,9 @@ func (s *posix) renameFileFromFileVolume(srcVolume, srcPath, dstVolume, dstPath 
 		}
 		defer file.Close()
 		if err := s.CreateFile(dstVolume, pathJoin(dstPath, e), fi.Size, file); err != nil {
+			return err
+		}
+		if err := s.DeleteFile(srcVolume, pathJoin(srcPath, e)); err != nil {
 			return err
 		}
 	}

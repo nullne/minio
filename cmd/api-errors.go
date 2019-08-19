@@ -21,6 +21,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net/http"
+	"runtime/debug"
 	"strings"
 
 	"github.com/Azure/azure-sdk-for-go/storage"
@@ -1683,6 +1684,9 @@ func toAPIError(ctx context.Context, err error) APIError {
 	}
 
 	var apiErr = errorCodes.ToAPIErr(toAPIErrorCode(ctx, err))
+	if apiErr.Code == "AccessDenied" {
+		debug.PrintStack()
+	}
 	if apiErr.Code == "InternalError" {
 		// If we see an internal error try to interpret
 		// any underlying errors if possible depending on

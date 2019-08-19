@@ -616,7 +616,7 @@ func (s *posix) StatVol(volume string) (volInfo VolInfo, err error) {
 	}
 
 	// sometime StatVol will be invoked to Stat dir
-	if globalFileVolumeEnabled && !isMinioMetaBucketName(strings.Split(volume, "/")[0]) {
+	if vs := strings.Split(volume, slashSeparator); len(vs) > 1 && globalFileVolumeEnabled && !isMinioMetaBucketName(vs[0]) {
 		idx := strings.Index(volume, slashSeparator)
 		if idx != -1 {
 			return s.statDirFromFileVolume(volume[:idx+1], volume[idx+1:])

@@ -19,6 +19,7 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"path"
@@ -519,6 +520,7 @@ func rename(ctx context.Context, disks []StorageAPI, srcBucket, srcEntry, dstBuc
 		go func(index int, disk StorageAPI) {
 			defer wg.Done()
 			if err := disk.RenameFile(srcBucket, srcEntry, dstBucket, dstEntry); err != nil {
+				fmt.Println("***", srcBucket, srcEntry, dstBucket, dstEntry, err)
 				if !IsErrIgnored(err, ignoredErr...) {
 					errs[index] = err
 				}
