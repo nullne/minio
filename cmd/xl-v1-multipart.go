@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"io"
 	"path"
-	"runtime/debug"
 	"sort"
 	"strconv"
 	"strings"
@@ -593,12 +592,6 @@ func (xl xlObjects) ListObjectParts(ctx context.Context, bucket, object, uploadI
 //
 // Implements S3 compatible Complete multipart API.
 func (xl xlObjects) CompleteMultipartUpload(ctx context.Context, bucket string, object string, uploadID string, parts []CompletePart, opts ObjectOptions) (oi ObjectInfo, e error) {
-	defer func() {
-		if e != nil {
-			fmt.Println("---------------------------")
-			debug.PrintStack()
-		}
-	}()
 	if err := checkCompleteMultipartArgs(ctx, bucket, object, xl); err != nil {
 		return oi, err
 	}
