@@ -496,11 +496,13 @@ func (s *posix) MakeVol(volume string) (err error) {
 	}
 
 	// create a object directory rather than a bucket volume
-	volume = strings.Trim(volume, "/")
-	if idx := strings.Index(volume, "/"); globalFileVolumeEnabled &&
-		!isMinioMetaBucketName(volume) &&
-		idx != -1 {
-		return s.makeDirFromFileVolume(volume[:idx], volume[idx+1:])
+	bucket := volume
+	idx := strings.Index(volume, slashSeparator)
+	if idx != -1 {
+		bucket = bucket[:idx]
+	}
+	if globalFileVolumeEnabled && idx != -1 && !isMinioMetaBucketName(bucket) {
+		return s.makeDirFromFileVolume(bucket, volume[idx:])
 	}
 
 	volumeDir, err := s.getVolDir(volume)
@@ -520,7 +522,7 @@ func (s *posix) MakeVol(volume string) (err error) {
 			return errFaultyDisk
 		}
 		if globalFileVolumeEnabled &&
-			!isMinioMetaBucketName(volume) {
+			!isMinioMetaBucketName(bucket) {
 			err = addFileVolume(path.Join(s.diskPath, volume))
 		}
 		return err

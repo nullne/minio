@@ -277,7 +277,7 @@ func (s *posix) renameFileFromFileVolume(srcVolume, srcPath, dstVolume, dstPath 
 		entries = []string{""}
 	} else {
 		es, err := s.ListDir(dstVolume, dstPath, 1)
-		if err != nil && err != errVolumeNotFound {
+		if err != nil && !(err == errVolumeNotFound || err == errFileNotFound) {
 			return err
 		}
 		if len(es) != 0 {
@@ -320,6 +320,10 @@ func (s *posix) renameFileFromFileVolume(srcVolume, srcPath, dstVolume, dstPath 
 			return err
 		}
 		defer file.Close()
+		// make sure it's absent
+		if err := s.DeleteFile(dstVolume, pathJoin(dstPath, e)); err != nil && err != errFileNotFound {
+			return err
+		}
 		if err := s.CreateFile(dstVolume, pathJoin(dstPath, e), fi.Size, file); err != nil {
 			return err
 		}

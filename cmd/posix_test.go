@@ -1666,6 +1666,264 @@ func TestPosixRenameFile2(t *testing.T) {
 	}
 }
 
+func TestPosixRenameFile3(t *testing.T) {
+	globalFileVolumeEnabled = true
+	defer func() {
+		globalFileVolumeEnabled = false
+	}()
+	// create posix test setup
+	posixStorage, path, err := newPosixTestSetup()
+	fmt.Println(path)
+	if err != nil {
+		t.Fatalf("Unable to create posix test setup, %s", err)
+	}
+	// defer os.RemoveAll(path)
+
+	// Setup test environment.
+	if err := posixStorage.MakeVol("src-vol"); err != nil {
+		t.Fatalf("Unable to create volume, %s", err)
+	}
+
+	if err := posixStorage.MakeVol(minioMetaMultipartBucket); err != nil {
+		t.Fatalf("Unable to create volume, %s", err)
+	}
+
+	if err := posixStorage.WriteAll("src-vol", "file1", []byte("Hello, world")); err != nil {
+		t.Fatalf("Unable to create file, %s", err)
+	}
+
+	if err := posixStorage.WriteAll("src-vol", "file2", []byte("Hello, world")); err != nil {
+		t.Fatalf("Unable to create file, %s", err)
+	}
+	if err := posixStorage.WriteAll("src-vol", "file3", []byte("Hello, world")); err != nil {
+		t.Fatalf("Unable to create file, %s", err)
+	}
+	if err := posixStorage.WriteAll("src-vol", "file4", []byte("Hello, world")); err != nil {
+		t.Fatalf("Unable to create file, %s", err)
+	}
+
+	if err := posixStorage.WriteAll("src-vol", "file5", []byte("Hello, world")); err != nil {
+		t.Fatalf("Unable to create file, %s", err)
+	}
+	if err := posixStorage.WriteAll("src-vol", "path/to/file1", []byte("Hello, world")); err != nil {
+		t.Fatalf("Unable to create file, %s", err)
+	}
+
+	testCases := []struct {
+		srcVol      string
+		destVol     string
+		srcPath     string
+		destPath    string
+		ioErrCnt    int
+		expectedErr error
+	}{
+		// TestPosix case - 1.
+		{
+			srcVol:      "src-vol",
+			destVol:     minioMetaMultipartBucket,
+			srcPath:     "file1",
+			destPath:    "file-one",
+			ioErrCnt:    0,
+			expectedErr: nil,
+		},
+		// TestPosix case - 2.
+		{
+			srcVol:      "src-vol",
+			destVol:     minioMetaMultipartBucket,
+			srcPath:     "path/",
+			destPath:    "new-path/",
+			ioErrCnt:    0,
+			expectedErr: nil,
+		},
+		// TestPosix case - 3.
+		// TestPosix to overwrite destination file.
+		{
+			srcVol:      "src-vol",
+			destVol:     minioMetaMultipartBucket,
+			srcPath:     "file2",
+			destPath:    "file-one",
+			ioErrCnt:    0,
+			expectedErr: nil,
+		},
+		// TestPosix case - 4.
+		// TestPosix case with io error count set to 1.
+		// expected not to fail.
+		{
+			srcVol:      "src-vol",
+			destVol:     minioMetaMultipartBucket,
+			srcPath:     "file3",
+			destPath:    "file-two",
+			ioErrCnt:    1,
+			expectedErr: nil,
+		},
+		// TestPosix case - 5.
+		// TestPosix case with io error count set to maximum allowed count.
+		// expected not to fail.
+		{
+			srcVol:      "src-vol",
+			destVol:     minioMetaMultipartBucket,
+			srcPath:     "file4",
+			destPath:    "file-three",
+			ioErrCnt:    5,
+			expectedErr: nil,
+		},
+		// TestPosix case - 6.
+		// TestPosix case with non-existent source file.
+		{
+			srcVol:      "src-vol",
+			destVol:     minioMetaMultipartBucket,
+			srcPath:     "non-existent-file",
+			destPath:    "file-three",
+			ioErrCnt:    0,
+			expectedErr: errFileNotFound,
+		},
+		// TestPosix case - 7.
+		// TestPosix to check failure of source and destination are not same type.
+		{
+			srcVol:      "src-vol",
+			destVol:     minioMetaMultipartBucket,
+			srcPath:     "path/",
+			destPath:    "file-one",
+			ioErrCnt:    0,
+			expectedErr: errFileAccessDenied,
+		},
+		// TestPosix case - 8.
+		// TestPosix to check failure of destination directory exists.
+		{
+			srcVol:      "src-vol",
+			destVol:     minioMetaMultipartBucket,
+			srcPath:     "path/",
+			destPath:    "new-path/",
+			ioErrCnt:    0,
+			expectedErr: errFileAccessDenied,
+		},
+		// TestPosix case - 9.
+		// TestPosix case with io error count is greater than maxAllowedIOError.
+		{
+			srcVol:      "src-vol",
+			destVol:     minioMetaMultipartBucket,
+			srcPath:     "path/",
+			destPath:    "new-path/",
+			ioErrCnt:    6,
+			expectedErr: errFaultyDisk,
+		},
+		// TestPosix case - 10.
+		// TestPosix case with source being a file and destination being a directory.
+		// Either both have to be files or directories.
+		// Expecting to fail with `errFileAccessDenied`.
+		{
+			srcVol:      "src-vol",
+			destVol:     minioMetaMultipartBucket,
+			srcPath:     "file4",
+			destPath:    "new-path/",
+			ioErrCnt:    0,
+			expectedErr: errFileAccessDenied,
+		},
+		// TestPosix case - 11.
+		// TestPosix case with non-existent source volume.
+		// Expecting to fail with `errVolumeNotFound`.
+		{
+			srcVol:      "src-vol-non-existent",
+			destVol:     minioMetaMultipartBucket,
+			srcPath:     "file4",
+			destPath:    "new-path/",
+			ioErrCnt:    0,
+			expectedErr: errVolumeNotFound,
+		},
+		// TestPosix case - 12.
+		// TestPosix case with non-existent destination volume.
+		// Expecting to fail with `errVolumeNotFound`.
+		{
+			srcVol:      "src-vol",
+			destVol:     "dest-vol-non-existent",
+			srcPath:     "file4",
+			destPath:    "new-path/",
+			ioErrCnt:    0,
+			expectedErr: errVolumeNotFound,
+		},
+		// TestPosix case - 13.
+		// TestPosix case with invalid src volume name. Length should be atleast 3.
+		// Expecting to fail with `errInvalidArgument`.
+		{
+			srcVol:      "ab",
+			destVol:     "dest-vol-non-existent",
+			srcPath:     "file4",
+			destPath:    "new-path/",
+			ioErrCnt:    0,
+			expectedErr: errVolumeNotFound,
+		},
+		// TestPosix case - 14.
+		// TestPosix case with invalid destination volume name. Length should be atleast 3.
+		// Expecting to fail with `errInvalidArgument`.
+		{
+			srcVol:      "abcd",
+			destVol:     "ef",
+			srcPath:     "file4",
+			destPath:    "new-path/",
+			ioErrCnt:    0,
+			expectedErr: errVolumeNotFound,
+		},
+		// TestPosix case - 15.
+		// TestPosix case with invalid destination volume name. Length should be atleast 3.
+		// Expecting to fail with `errInvalidArgument`.
+		{
+			srcVol:      "abcd",
+			destVol:     "ef",
+			srcPath:     "file4",
+			destPath:    "new-path/",
+			ioErrCnt:    0,
+			expectedErr: errVolumeNotFound,
+		},
+		// TestPosix case - 16.
+		// TestPosix case with the parent of the destination being a file.
+		// expected to fail with `errFileAccessDenied`.
+		// {
+		// 	srcVol:      "src-vol",
+		// 	destVol:     minioMetaMultipartBucket,
+		// 	srcPath:     "file5",
+		// 	destPath:    "file-one/parent-is-file",
+		// 	ioErrCnt:    0,
+		// 	expectedErr: errFileAccessDenied,
+		// },
+		// TestPosix case - 17.
+		// TestPosix case with segment of source file name more than 255.
+		// expected not to fail.
+		{
+			srcVol:      "src-vol",
+			destVol:     minioMetaMultipartBucket,
+			srcPath:     "path/to/my/object0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001",
+			destPath:    "file-six",
+			ioErrCnt:    0,
+			expectedErr: errFileNameTooLong,
+		},
+		// TestPosix case - 18.
+		// TestPosix case with segment of destination file name more than 255.
+		// expected not to fail.
+		{
+			srcVol:      "src-vol",
+			destVol:     minioMetaMultipartBucket,
+			srcPath:     "file6",
+			destPath:    "path/to/my/object0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001",
+			ioErrCnt:    0,
+			expectedErr: errFileNameTooLong,
+		},
+	}
+
+	for i, testCase := range testCases {
+		// setting ioErrCnt from the test case.
+		if posixType, ok := posixStorage.(*posix); ok {
+			// setting the io error count from as specified in the test case.
+			posixType.ioErrCount = int32(testCase.ioErrCnt)
+		} else {
+			t.Fatalf("Expected the StorageAPI to be of type *posix")
+		}
+
+		if err := posixStorage.RenameFile(testCase.srcVol, testCase.srcPath, testCase.destVol, testCase.destPath); err != testCase.expectedErr {
+			t.Fatalf("TestPosix %d:  Expected the error to be : \"%v\", got: \"%v\".", i+1, testCase.expectedErr, err)
+		}
+	}
+}
+
 // TestPosix posix.RenameFile()
 func TestPosixRenameFile(t *testing.T) {
 	// create posix test setup
