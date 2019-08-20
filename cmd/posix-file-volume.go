@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"sync"
 	"time"
@@ -268,5 +269,65 @@ func (s *posix) makeDirFromFileVolume(volume, path string) error {
 }
 
 func (s *posix) renameFileFromFileVolume(srcVolume, srcPath, dstVolume, dstPath string) (err error) {
-	return errors.New("not implemented")
+	defer func() {
+		err = convertError(err, false)
+	}()
+	var entries []string
+	if !hasSuffix(srcPath, slashSeparator) {
+		entries = []string{""}
+	} else {
+		es, err := s.ListDir(dstVolume, dstPath, 1)
+		if err != nil && !(err == errVolumeNotFound || err == errFileNotFound) {
+			return err
+		}
+		if len(es) != 0 {
+			return errFileAccessDenied
+		}
+		entries, err = s.ListDir(srcVolume, srcPath, -1)
+		if err != nil {
+			return err
+		}
+	}
+	// empty directory
+	if len(entries) == 0 {
+		if err := s.MakeVol(path.Dir(pathJoin(dstVolume, dstPath))); err != nil && err != errVolumeExists {
+			return err
+		}
+		return s.DeleteFile(srcVolume, srcPath)
+	}
+	for _, e := range entries {
+		if hasSuffix(e, slashSeparator) {
+			if err := s.renameFileFromFileVolume(srcVolume, pathJoin(srcPath, e), dstVolume, pathJoin(dstPath, e)); err != nil {
+				return err
+			}
+			continue
+		}
+		fi, err := s.StatFile(srcVolume, pathJoin(srcPath, e))
+		if err != nil {
+			return err
+		}
+		// create dir before write to it
+		if isMinioMetaBucketName(dstVolume) {
+			if err := s.MakeVol(path.Dir(pathJoin(dstVolume, dstPath, e))); err != nil && err != errVolumeExists {
+				return err
+			}
+		}
+		file, err := s.ReadFileStream(srcVolume, pathJoin(srcPath, e), 0, fi.Size)
+		if err != nil {
+			return err
+		}
+		defer file.Close()
+		// make sure it's absent
+		if err := s.DeleteFile(dstVolume, pathJoin(dstPath, e)); err != nil && err != errFileNotFound {
+			return err
+		}
+		if err := s.CreateFile(dstVolume, pathJoin(dstPath, e), fi.Size, file); err != nil {
+			return err
+		}
+		if err := s.DeleteFile(srcVolume, pathJoin(srcPath, e)); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

@@ -545,9 +545,9 @@ func rename(ctx context.Context, disks []StorageAPI, srcBucket, srcEntry, dstBuc
 // object operations.
 func (xl xlObjects) PutObject(ctx context.Context, bucket string, object string, data *PutObjReader, opts ObjectOptions) (objInfo ObjectInfo, err error) {
 	// Validate put object input args.
-	// if err = checkPutObjectArgs(ctx, bucket, object, xl, data.Size()); err != nil {
-	// 	return ObjectInfo{}, err
-	// }
+	if err = checkPutObjectArgs(ctx, bucket, object, xl, data.Size()); err != nil {
+		return ObjectInfo{}, err
+	}
 
 	// Lock the object.
 	objectLock := xl.nsMutex.NewNSLock(bucket, object)

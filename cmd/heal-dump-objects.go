@@ -11,7 +11,7 @@ import (
 
 	"github.com/minio/cli"
 	"github.com/minio/minio/cmd/logger"
-	"github.com/minio/minio/cmd/volume"
+	fv "github.com/minio/minio/cmd/volume"
 )
 
 var healDumpObjectsFlags = []cli.Flag{
@@ -43,7 +43,7 @@ FLAGS:
   {{range .VisibleFlags}}{{.}}
   {{end}}{{end}}
 EXAMPLES:
-   1. restore the index from backup on the specified drives (same as the volume path when start minio server):
+   1. dump the objects list specified by volume (same as the volume path when start minio server):
       $ {{.HelpName}} /data1
 `,
 }
@@ -85,7 +85,7 @@ func mainHealDumpObjects(ctx *cli.Context) {
 		}
 		sort.Strings(buckets)
 		for _, bucket := range buckets {
-			ch, err := volume.DumpObjectsFromRocksDB(path.Join(dir, bucket))
+			ch, err := fv.DumpObjectsFromRocksDB(path.Join(dir, bucket))
 			if err != nil {
 				logger.Fatal(err, "failed to dump objects")
 			}
