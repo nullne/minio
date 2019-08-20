@@ -43,7 +43,7 @@ FLAGS:
   {{range .VisibleFlags}}{{.}}
   {{end}}{{end}}
 EXAMPLES:
-   1. restore the index from backup on the specified drives (same as the volume path when start minio server):
+   1. dump the objects list specified by volume (same as the volume path when start minio server):
       $ {{.HelpName}} /data1
 `,
 }
