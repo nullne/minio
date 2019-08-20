@@ -786,7 +786,6 @@ func (xl xlObjects) CompleteMultipartUpload(ctx context.Context, bucket string, 
 
 	// Rename the multipart object to final location.
 	if _, err = rename(ctx, onlineDisks, minioMetaMultipartBucket, uploadIDPath, bucket, object, true, writeQuorum, nil); err != nil {
-		fmt.Println("---", minioMetaMultipartBucket, uploadIDPath, bucket, object, err)
 		return oi, toObjectErr(err, bucket, object)
 	}
 
