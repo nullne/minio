@@ -293,10 +293,7 @@ func (s *posix) renameFileFromFileVolume(srcVolume, srcPath, dstVolume, dstPath 
 		if err := s.MakeVol(path.Dir(pathJoin(dstVolume, dstPath))); err != nil && err != errVolumeExists {
 			return err
 		}
-		if err := s.DeleteVol(path.Dir(pathJoin(srcVolume, srcPath))); err != nil {
-			return err
-		}
-		return nil
+		return s.DeleteFile(srcVolume, srcPath)
 	}
 	for _, e := range entries {
 		if hasSuffix(e, slashSeparator) {
