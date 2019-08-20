@@ -502,7 +502,7 @@ func (s *posix) MakeVol(volume string) (err error) {
 		bucket = bucket[:idx]
 	}
 	if globalFileVolumeEnabled && idx != -1 && !isMinioMetaBucketName(bucket) {
-		return s.makeDirFromFileVolume(bucket, volume[idx:])
+		return s.makeDirFromFileVolume(bucket, volume[idx+1:])
 	}
 
 	volumeDir, err := s.getVolDir(volume)
