@@ -48,7 +48,7 @@ var (
 )
 
 func init() {
-	if s := os.Getenv("MINIO_MAX_FILE_SIZE"); s != "" {
+	if s := os.Getenv("FILE_VOLUME_MAX_FILE_SIZE"); s != "" {
 		i, err := strconv.Atoi(s)
 		if err != nil {
 			return
@@ -67,7 +67,7 @@ func createFile(dir string, id int32) (f *file, err error) {
 	f.path = p
 	f.data, err = os.OpenFile(p, os.O_WRONLY|os.O_CREATE, 0666)
 	if err != nil {
-		logger.LogIf(context.Background(), fmt.Errorf("failed to create file %s to write: %v", p, err))
+		// logger.LogIf(context.Background(), fmt.Errorf("failed to create file %s to write: %v", p, err))
 		return nil, err
 	}
 	if err := Fallocate(int(f.data.Fd()), 0, MaxFileSize); err != nil {
