@@ -22,6 +22,18 @@ type FileInfo struct {
 	data []byte
 }
 
+func NewFileInfo(name string) FileInfo {
+	return FileInfo{fileName: name}
+}
+
+func NewDirInfo(name string) FileInfo {
+	return FileInfo{
+		fileName: name,
+		isDir:    true,
+		modTime:  time.Now(), // fake time
+	}
+}
+
 func NewDemoFileInfo(size int) FileInfo {
 	data := make([]byte, size)
 	rand.Read(data)
@@ -87,4 +99,9 @@ func (f *FileInfo) UnmarshalBinary(data []byte) error {
 	f.size = binary.BigEndian.Uint32(data[8:12])
 	f.modTime = time.Unix(0, int64(binary.BigEndian.Uint64(data[12:20])))
 	return nil
+}
+
+func (fi *FileInfo) Set(data []byte, size uint32) {
+	fi.data = data
+	fi.size = size
 }

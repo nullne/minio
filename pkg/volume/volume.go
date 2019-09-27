@@ -430,6 +430,10 @@ func (v *Volume) Close() (err error) {
 	return
 }
 
+func PathJoin(elem ...string) string {
+	return pathJoin(elem...)
+}
+
 // pathJoin - like path.Join() but retains trailing "/" of the last element
 func pathJoin(elem ...string) string {
 	trailingSlash := ""

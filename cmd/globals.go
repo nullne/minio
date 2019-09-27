@@ -284,6 +284,9 @@ var (
 	globalAllHealState      *allHealState
 	globalSweepHealState    *allHealState
 
+	// globalFileVolumes
+	globalFileVolumes fileVolumes
+
 	// Add new variable global values here.
 )
 
