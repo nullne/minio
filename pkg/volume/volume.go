@@ -39,6 +39,7 @@ const (
 
 var (
 	ErrUnderMaintenance = errors.New("there are other ongoing maintenance")
+	ErrInvalidArgument  = errors.New("invalid argument specified")
 )
 
 type Volume struct {
@@ -48,19 +49,21 @@ type Volume struct {
 	files *files
 }
 
-func NewVolume(ctx context.Context, dir string) (v *Volume, err error) {
-	index, err := NewRocksDBIndex(dir, parseRocksDBOptionsFromEnv())
+func NewVolume(ctx context.Context, dir string, idx Index) (*Volume, error) {
+	var err error
+	if dir, err = GetValidPath(dir); err != nil {
+		return nil, err
+	}
+
+	files, err := newFiles(ctx, path.Join(dir, DataDir))
 	if err != nil {
 		return nil, err
 	}
-	v = new(Volume)
-	v.dir = dir
-	v.index = index
-	v.files, err = newFiles(ctx, path.Join(dir, DataDir))
-	if err != nil {
-		return nil, err
-	}
-	return v, nil
+	return &Volume{
+		dir:   dir,
+		index: idx,
+		files: files,
+	}, nil
 }
 
 // ReadAll reads from r until an error or EOF and returns the data it read.
@@ -203,25 +206,6 @@ func (v *Volume) MakeDir(p string) error {
 	})
 }
 
-type maintainItem struct {
-	size int
-	key  string
-}
-
-type maintainItems []maintainItem
-
-func (s maintainItems) Len() int {
-	return len(s)
-}
-
-func (s maintainItems) Swap(i, j int) {
-	s[i], s[j] = s[j], s[i]
-}
-
-func (s maintainItems) Less(i, j int) bool {
-	return s[i].size < s[i].size
-}
-
 func (v *Volume) Maintain(ctx context.Context) error {
 	dir := path.Join(v.dir, MaintenanceDir)
 	fis, err := ioutil.ReadDir(dir)
@@ -270,6 +254,7 @@ func (v *Volume) Maintain(ctx context.Context) error {
 		if err := scanner.Err(); err != nil {
 			return err
 		}
+		// it's faster to read in sequence rather than in random
 		sort.Sort(items)
 		for _, item := range items {
 			key := item.key
@@ -453,4 +438,23 @@ func catchPanic() {
 	if err := recover(); err != nil {
 		logger.Info("catch panic: %+v", err)
 	}
+}
+
+type maintainItem struct {
+	size int
+	key  string
+}
+
+type maintainItems []maintainItem
+
+func (s maintainItems) Len() int {
+	return len(s)
+}
+
+func (s maintainItems) Swap(i, j int) {
+	s[i], s[j] = s[j], s[i]
+}
+
+func (s maintainItems) Less(i, j int) bool {
+	return s[i].size < s[i].size
 }

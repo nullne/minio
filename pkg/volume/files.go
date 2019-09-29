@@ -50,12 +50,8 @@ func (f *files) getCreateFileError() error {
 	return f.createFileError
 }
 
-func newFiles(ctx context.Context, dir string) (fs *files, err error) {
-	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		if err := os.MkdirAll(dir, 0755); err != nil {
-			return nil, err
-		}
-	} else if err != nil {
+func newFiles(ctx context.Context, dir string) (*files, error) {
+	if err := MkdirIfNotExist(dir); err != nil {
 		return nil, err
 	}
 
@@ -63,31 +59,29 @@ func newFiles(ctx context.Context, dir string) (fs *files, err error) {
 	if err != nil {
 		return nil, err
 	}
-	defer func() {
-		if err != nil {
-			fl.release()
-		}
-	}()
 
-	fs = new(files)
-	fs.dir = dir
-	fs.ch = make(chan request)
-	fs.chWritableFile = make(chan *file)
-	fs.flock = fl
+	fs := files{
+		dir:            dir,
+		ch:             make(chan request),
+		chWritableFile: make(chan *file),
+		flock:          fl,
+	}
 
 	if err := fs.loadFiles(); err != nil {
+		fl.release()
 		return nil, err
 	}
 
 	go fs.prepareFileToWrite(ctx)
 
-	// wait the first wriable file
+	// test if writer works
 	if _, err := fs.getFileToWrite(ctx); err != nil {
-		logger.LogIf(ctx, err)
+		fs.close()
+		return nil, err
 	}
 
 	go fs.writeWorker(ctx)
-	return fs, nil
+	return &fs, nil
 }
 
 func (fis *files) loadFiles() (err error) {

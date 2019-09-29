@@ -21,3 +21,10 @@ type Volume interface {
 	Remove() error
 	Close() error
 }
+
+type Volumes interface {
+	Add(ctx context.Context, p string) error
+	Get(p string) (Volume, error)
+	Remove(p string) error
+	Close() error
+}

@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"sync"
+
+	"github.com/minio/minio/pkg/volume/interfaces"
 )
 
 // It is safe for concurrent use by multiple goroutines.
@@ -30,7 +32,7 @@ func (vs *Volumes) Add(ctx context.Context, p string) error {
 	}
 	defer vs.lock.Delete(p)
 
-	vol, err := NewVolume(ctx, p)
+	vol, err := NewVolume(ctx, p, nil)
 	if err != nil {
 		return err
 	}
@@ -38,7 +40,7 @@ func (vs *Volumes) Add(ctx context.Context, p string) error {
 	return nil
 }
 
-func (vs *Volumes) Get(p string) (*Volume, error) {
+func (vs *Volumes) Get(p string) (interfaces.Volume, error) {
 	vol, ok := vs.volumes.Load(p)
 	if !ok {
 		return nil, ErrVolumeNotFound

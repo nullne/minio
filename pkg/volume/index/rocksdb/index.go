@@ -1,5 +1,5 @@
 // list avalaible options here
-package main
+package rocksdb
 
 import (
 	"bytes"
@@ -219,7 +219,7 @@ func NewIndex(name string, options volume.IndexOptions) (volume.Index, error) {
 
 	opt := parseOptionsFromEnv()
 	opts := toRocksdbOptions(opt)
-	db, err := gorocksdb.OpenDb(opts, name)
+	db, err := gorocksdb.OpenDb(opts, p)
 	if err != nil {
 		return nil, err
 	}
