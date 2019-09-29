@@ -9,6 +9,7 @@ import (
 type Volume interface {
 	ReadAll(key string) ([]byte, error)
 	ReadFile(key string, offset int64, buffer []byte) (int64, error)
+	ReadFileStream(key string, offset, length int64) (io.ReadCloser, error)
 	WriteAll(key string, size int64, r io.Reader) error
 	Delete(path string) error
 	List(p string, count int) ([]string, error)

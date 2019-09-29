@@ -437,6 +437,15 @@ func handleCommonEnvVars() {
 			globalCompressMimeTypes = contenttypes
 		}
 	}
+
+	// Get FILE_VOLUME environment variable.
+	if fv := os.Getenv("MINIO_FILE_VOLUME"); fv != "" {
+		fvFlag, err := ParseBoolFlag(fv)
+		if err != nil {
+			logger.Fatal(uiErrInvalidFileVolumeValue(nil).Msg("Unknown value `%s`", fv), "Invalid MINIO_FILE_VOLUME value in environment variable")
+		}
+		globalFileVolumeEnabled = bool(fvFlag)
+	}
 }
 
 func logStartupMessage(msg string, data ...interface{}) {

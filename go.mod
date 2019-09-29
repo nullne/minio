@@ -40,6 +40,7 @@ require (
 	github.com/mattn/go-isatty v0.0.7
 	github.com/miekg/dns v1.1.8
 	github.com/minio/cli v1.21.0
+	github.com/minio/dsync v1.0.0
 	github.com/minio/dsync/v2 v2.0.0
 	github.com/minio/gokrb5/v7 v7.2.5
 	github.com/minio/hdfs/v3 v3.0.1
@@ -72,6 +73,7 @@ require (
 	golang.org/x/crypto v0.0.0-20190923035154-9ee001bba392
 	golang.org/x/net v0.0.0-20190923162816-aa69164e4478 // indirect
 	golang.org/x/sys v0.0.0-20190922100055-0a153f010e69
+	golang.org/x/tools/gopls v0.1.7 // indirect
 	google.golang.org/api v0.4.0
 	gopkg.in/Shopify/sarama.v1 v1.20.0
 	gopkg.in/bufio.v1 v1.0.0-20140618132640-567b2bfa514e

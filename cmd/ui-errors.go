@@ -228,4 +228,10 @@ Example 1:
 		"",
 		"Refer to https://docs.min.io/docs/minio-kms-quickstart-guide.html for setting up SSE",
 	)
+
+	uiErrInvalidFileVolumeValue = newUIErrFn(
+		"Invalid File Volume value",
+		"Please check the passed value",
+		"File Volume can only accept `on` and `off` values. To enable File Volume, set this value to `on`",
+	)
 )

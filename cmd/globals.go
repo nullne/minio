@@ -36,6 +36,7 @@ import (
 	iampolicy "github.com/minio/minio/pkg/iam/policy"
 	"github.com/minio/minio/pkg/iam/validator"
 	"github.com/minio/minio/pkg/pubsub"
+	"github.com/minio/minio/pkg/volume/interfaces"
 )
 
 // minio configuration related constants.
@@ -285,7 +286,8 @@ var (
 	globalSweepHealState    *allHealState
 
 	// globalFileVolumes
-	globalFileVolumes fileVolumes
+	globalFileVolumeEnabled bool
+	globalFileVolumes       interfaces.Volumes
 
 	// Add new variable global values here.
 )
