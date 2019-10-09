@@ -19,10 +19,10 @@ type IndexOptions struct {
 }
 
 type Index interface {
-	Get(key string) (fi FileInfo, err error)
-	Set(key string, fi FileInfo) error
+	Get(key string) ([]byte, error)
+	Set(key string, data []byte) error
 	Delete(key string) error
-	StatDir(key string) (fi FileInfo, err error)
+	// StatDir(key string) (fi FileInfo, err error)
 	ListN(key string, count int) ([]string, error)
 	ScanAll(ctx context.Context, filter func(string) bool) (chan FileInfo, chan error)
 	Close() error
@@ -38,11 +38,6 @@ func mergeFilters(fs ...func(string) bool) func(string) bool {
 		}
 		return true
 	}
-}
-
-// determine whether the file named s will be saved directly into index which may be implemented by various database
-var DirectIndexSaving func(string) bool = func(s string) bool {
-	return false
 }
 
 func directIndexStoring(key string) bool {

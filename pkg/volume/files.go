@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/minio/minio/cmd/logger"
+	"github.com/minio/minio/pkg/volume/interfaces"
 )
 
 const (
@@ -240,13 +241,11 @@ retry:
 func (fs *files) getFileToRead(fid uint32) (*file, error) {
 	files := fs.files.Load().([]*file)
 	if len(files) <= int(fid) {
-		// return nil, fmt.Errorf("file volume %d not found", fid)
-		return nil, os.ErrNotExist
+		return nil, interfaces.ErrNotExisted
 	}
 	file := files[fid]
 	if file == nil {
-		// return nil, fmt.Errorf("file volume %d not found", fid)
-		return nil, os.ErrNotExist
+		return nil, interfaces.ErrNotExisted
 	}
 	return file, nil
 }

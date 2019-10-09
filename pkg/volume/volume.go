@@ -16,9 +16,9 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/minio/minio/cmd/logger"
+	"github.com/minio/minio/pkg/volume/interfaces"
 	"go.uber.org/multierr"
 
 	bf "gopkg.in/bufio.v1"
@@ -35,6 +35,8 @@ const (
 	listFileSuffix          = ".list"
 	completedListFileSuffix = ".completed"
 	noNeedListFileSuffix    = ".no-need"
+
+	slashSeperator = "/"
 )
 
 var (
@@ -47,7 +49,12 @@ type Volume struct {
 	dir   string
 	index Index
 	files *files
+
+	// save the data directly in the index db rather than big file
+	directIndexSaving func(string) bool
 }
+
+var disableDirectIndexSaving = func(string) bool { return false }
 
 func NewVolume(ctx context.Context, dir string, idx Index) (*Volume, error) {
 	var err error
@@ -60,9 +67,10 @@ func NewVolume(ctx context.Context, dir string, idx Index) (*Volume, error) {
 		return nil, err
 	}
 	return &Volume{
-		dir:   dir,
-		index: idx,
-		files: files,
+		dir:               dir,
+		index:             idx,
+		files:             files,
+		directIndexSaving: disableDirectIndexSaving,
 	}, nil
 }
 
@@ -71,23 +79,32 @@ func NewVolume(ctx context.Context, dir string, idx Index) (*Volume, error) {
 // defined to read from src until EOF, it does not treat an EOF from Read
 // as an error to be reported.
 func (v *Volume) ReadAll(key string) ([]byte, error) {
-	info, err := v.index.Get(key)
+	if isDirectory(key) {
+		return nil, interfaces.ErrIsNotReguler
+	}
+	bs, err := v.index.Get(key)
 	if err != nil {
 		return nil, err
 	}
-	if info.IsDir() {
-		return nil, fmt.Errorf("%s is a directory", key)
+
+	if v.directIndexSaving(key) {
+		if len(bs) < len8 {
+			return nil, io.ErrUnexpectedEOF
+		}
+		return bs[len8:], nil
 	}
-	if strings.HasSuffix(key, xlJSONFile) {
-		return info.Data(), nil
+
+	info, err := UnmarshalFileInfo(key, bs)
+	if err != nil {
+		return nil, err
 	}
 	file, err := v.files.getFileToRead(info.volumeID)
 	if err != nil {
 		return nil, err
 	}
-	bs := make([]byte, info.size)
-	_, err = file.read(bs, int64(info.offset))
-	return bs, err
+	data := make([]byte, info.size)
+	_, err = file.read(data, int64(info.offset))
+	return data, err
 }
 
 // ReadFile reads exactly len(buf) bytes into buf. It returns the
@@ -98,12 +115,25 @@ func (v *Volume) ReadAll(key string) ([]byte, error) {
 // If an EOF happens after reading some but not all the bytes,
 // ReadFile returns ErrUnexpectedEOF.
 func (v *Volume) ReadFile(key string, offset int64, buffer []byte) (int64, error) {
-	info, err := v.index.Get(key)
+	if isDirectory(key) {
+		return 0, interfaces.ErrIsNotReguler
+	}
+	bs, err := v.index.Get(key)
 	if err != nil {
 		return 0, err
 	}
-	if info.IsDir() {
-		return 0, fmt.Errorf("%s is a directory", key)
+
+	if v.directIndexSaving(key) {
+		if int64(len(bs)-len8) < +offset {
+			return 0, io.ErrUnexpectedEOF
+		}
+		n := copy(buffer, bs[int64(len8)+offset:])
+		return int64(n), nil
+	}
+
+	info, err := UnmarshalFileInfo(key, bs)
+	if err != nil {
+		return 0, err
 	}
 	file, err := v.files.getFileToRead(info.volumeID)
 	if err != nil {
@@ -114,51 +144,58 @@ func (v *Volume) ReadFile(key string, offset int64, buffer []byte) (int64, error
 }
 
 func (v *Volume) ReadFileStream(key string, offset, length int64) (io.ReadCloser, error) {
-	info, err := v.index.Get(key)
+	if isDirectory(key) {
+		return nil, interfaces.ErrIsNotReguler
+	}
+	bs, err := v.index.Get(key)
 	if err != nil {
 		return nil, err
 	}
-	if info.IsDir() {
-		return nil, fmt.Errorf("%s is a directory", key)
+
+	if v.directIndexSaving(key) {
+		offset += len8
+		if int64(len(bs)) < offset {
+			return nil, io.ErrUnexpectedEOF
+		}
+		if offset+length > int64(len(bs)) {
+			length = int64(len(bs)) - offset
+		}
+		return ioutil.NopCloser(bf.NewBuffer(bs[offset : offset+length])), nil
+	}
+
+	info, err := UnmarshalFileInfo(key, bs)
+	if err != nil {
+		return nil, err
+	}
+	if offset > int64(info.size) {
+		return ioutil.NopCloser(bf.NewBuffer([]byte{})), nil
 	}
 	file, err := v.files.getFileToRead(info.volumeID)
 	if err != nil {
 		return nil, err
 	}
-	if offset > int64(info.size) {
-		offset = int64(info.size)
-		length = 0
-	}
 	if offset+length > int64(info.size) {
 		length = int64(info.size) - offset
 	}
-	bs := make([]byte, length)
-	_, err = file.read(bs, int64(info.offset)+offset)
+	data := make([]byte, length)
+	_, err = file.read(data, int64(info.offset)+offset)
 	if err != nil {
 		return nil, err
 	}
-	return ioutil.NopCloser(bf.NewBuffer(bs)), nil
+	return ioutil.NopCloser(bf.NewBuffer(data)), nil
 }
 
-func (v *Volume) WriteAll(key string, size int64, r io.Reader) error {
-	// io.Reader isn't predictable
-	bs := make([]byte, size)
-	if _, err := io.ReadFull(r, bs); err != nil {
-		return err
-	}
-
-	if strings.HasSuffix(key, xlJSONFile) {
-		return v.index.Set(key, FileInfo{
-			fileName: key,
-			data:     bs,
-		})
+func (v *Volume) WriteAll(key string, bs []byte) error {
+	if v.directIndexSaving(key) {
+		info := NewShortFileInfo(key).MarshalBinary()
+		return v.index.Set(key, append(info, bs...))
 	}
 
 	fi, err := v.files.write(bs)
 	if err != nil {
 		return err
 	}
-	return v.index.Set(key, fi)
+	return v.index.Set(key, fi.MarshalBinary())
 }
 
 // delete /data/bucket/object will delete all following keys
@@ -178,32 +215,39 @@ func (v *Volume) List(p string, count int) ([]string, error) {
 }
 
 func (v *Volume) Stat(key string) (os.FileInfo, error) {
-	return v.index.Get(key)
+	data, err := v.index.Get(key)
+	if err != nil {
+		return nil, err
+	}
+	var fi FileInfo
+	if v.directIndexSaving(key) {
+		fi = NewShortFileInfo(key)
+	} else {
+		fi = NewFileInfo(key)
+	}
+	if err := fi.UnmarshalBinary(data); err != nil {
+		return nil, err
+	}
+	return fi, nil
 }
 
-// fake dir mod time
-func (v *Volume) StatDir(p string) (os.FileInfo, error) {
+// Mkdir is a little bit different from os.Mkdir, but should work well with object storage
+func (v *Volume) Mkdir(p string) error {
+	if !strings.HasSuffix(p, slashSeperator) {
+		p += slashSeperator
+	}
 	if p == "" {
-		return nil, os.ErrNotExist
+		return ErrInvalidArgument
 	}
-	if !strings.HasSuffix(p, "/") {
-		p += "/"
+	_, err := v.index.Get(p)
+	if err == nil {
+		return os.ErrExist
+	} else if err != interfaces.ErrKeyNotExisted {
+		return err
 	}
-	return v.index.StatDir(p)
-}
 
-func (v *Volume) MakeDir(p string) error {
-	if p == "" {
-		return nil
-	}
-	if !strings.HasSuffix(p, "/") {
-		p += "/"
-	}
-	return v.index.Set(p, FileInfo{
-		fileName: p,
-		isDir:    true,
-		modTime:  time.Now(),
-	})
+	nfi := NewDirInfo(p)
+	return v.index.Set(p, nfi.MarshalBinary())
 }
 
 func (v *Volume) Maintain(ctx context.Context) error {
@@ -258,7 +302,11 @@ func (v *Volume) Maintain(ctx context.Context) error {
 		sort.Sort(items)
 		for _, item := range items {
 			key := item.key
-			nfi, err := v.index.Get(key)
+			data, err := v.index.Get(key)
+			if err != nil {
+				return err
+			}
+			nfi, err := UnmarshalFileInfo(key, data)
 			if err != nil {
 				return err
 			}
@@ -275,7 +323,7 @@ func (v *Volume) Maintain(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
-			if err := v.index.Set(key, nnfi); err != nil {
+			if err := v.index.Set(key, nnfi.MarshalBinary()); err != nil {
 				return err
 			}
 		}
@@ -320,7 +368,7 @@ func (v *Volume) DumpListToMaintain(ctx context.Context, rate float64) error {
 	sizes := make(map[uint32]int64)
 
 	for e := range ch {
-		if e.IsDir() || directIndexStoring(e.fileName) {
+		if e.IsDir() || directIndexStoring(e.name) {
 			continue
 		}
 		if _, ok := readOnlyFIDs[e.volumeID]; !ok {
@@ -334,8 +382,7 @@ func (v *Volume) DumpListToMaintain(ctx context.Context, rate float64) error {
 			defer file.Close()
 			files[e.volumeID] = file
 		}
-		// if _, err := files[e.volumeID].WriteString(fmt.Sprintf("%s,%d\n", e.fileName, e.offset)); err != nil {
-		if _, err := fmt.Fprintf(files[e.volumeID], "%s,%d\n", e.fileName, e.offset); err != nil {
+		if _, err := fmt.Fprintf(files[e.volumeID], "%s,%d\n", e.name, e.offset); err != nil {
 			return err
 		}
 		sizes[e.volumeID] += e.Size()

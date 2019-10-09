@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"encoding/hex"
+	"errors"
 	"io"
 	"os"
 	"path"
@@ -37,9 +38,77 @@ func convertError(err error, directory bool) error {
 		}
 	case isSysErrIO(err):
 		return errFaultyDisk
+	case err == interfaces.ErrNotExisted:
+		if directory {
+			return errVolumeExists
+		} else {
+			return err
+		}
 	default:
 		return err
 	}
+}
+
+func (s *posix) mkdirFromFileVolume(volume, path string) (err error) {
+	defer func() { err = convertError(err, true) }()
+	vol, err := globalFileVolumes.Get(filepath.Join(s.diskPath, volume))
+	if err != nil {
+		return err
+	}
+	return vol.Mkdir(path)
+}
+
+func (s *posix) statDirFromFileVolume(volume, path string) (vi VolInfo, err error) {
+	defer func() { err = convertError(err, true) }()
+
+	vol, err := globalFileVolumes.Get(filepath.Join(s.diskPath, volume))
+	if err != nil {
+		return vi, err
+	}
+	fi, err := vol.Stat(path)
+	if err != nil {
+		return vi, err
+	}
+	// @TODO return which error
+	// if !fi.IsDir() {
+	// }
+	return VolInfo{
+		Name:    fi.Name(),
+		Created: fi.ModTime(),
+	}, nil
+}
+
+func (s *posix) deleteVolFromFileVolume(volume string) error {
+	p := filepath.Join(s.diskPath, volume)
+	err := globalFileVolumes.Remove(p)
+	if err == nil {
+		return nil
+	}
+
+	switch {
+	case os.IsPermission(err):
+		return errDiskAccessDenied
+	case isSysErrIO(err):
+		return errFaultyDisk
+	default:
+		return err
+	}
+}
+
+// @TODO
+func (s *posix) walkFromFileVolume(volume, dirPath, marker string, recursive bool, leafFile string, readMetadataFn readMetadataFunc, endWalkCh chan struct{}) (ch chan FileInfo, err error) {
+	return nil, errors.New("not implemented")
+}
+
+func (s *posix) listDirFromFileVolume(volume, dirPath string, count int) (entries []string, err error) {
+	defer func() { err = convertError(err, true) }()
+
+	vol, err := globalFileVolumes.Get(filepath.Join(s.diskPath, volume))
+	if err != nil {
+		return nil, err
+	}
+
+	return vol.List(dirPath, count)
 }
 
 func (s *posix) readAllFromFileVolume(volume, path string) (buf []byte, err error) {
@@ -106,31 +175,29 @@ func (s *posix) readFileStreamFromFileVolume(volume, path string, offset, length
 	return vol.ReadFileStream(path, offset, length)
 }
 
+func (s *posix) createFileToFileVolume(volume, path string, fileSize int64, r io.Reader) error {
+	bs := make([]byte, fileSize)
+	_, err := io.ReadFull(r, bs)
+	if err == nil {
+		return s.writeAllToFileVolume(volume, path, bs)
+	}
+	if err == io.ErrUnexpectedEOF || err == io.EOF {
+		return errLessData
+	}
+	return err
+}
+
 func (s *posix) writeAllToFileVolume(volume, path string, buf []byte) (err error) {
 	defer func() { err = convertError(err, false) }()
 	vol, err := globalFileVolumes.Get(filepath.Join(s.diskPath, volume))
 	if err != nil {
 		return err
 	}
-	return vol.WriteAll(path, int64(len(buf)), bufio.NewBuffer(buf))
+	return vol.WriteAll(path, buf)
 }
 
-func (s *posix) createFileToFileVolume(volume, path string, fileSize int64, r io.Reader) (err error) {
-	defer func() { err = convertError(err, false) }()
-	vol, err := globalFileVolumes.Get(filepath.Join(s.diskPath, volume))
-	if err != nil {
-		return err
-	}
-	return vol.WriteAll(path, fileSize, r)
-}
-
-func (s *posix) deleteFromFileVolume(volume, path string) (err error) {
-	defer func() { err = convertError(err, false) }()
-	vol, err := globalFileVolumes.Get(filepath.Join(s.diskPath, volume))
-	if err != nil {
-		return err
-	}
-	return vol.Delete(path)
+func (s *posix) appendFileToFileVolume(volume, path string, buf []byte) (err error) {
+	return errors.New("not implemented")
 }
 
 func (s *posix) statFileFromFileVolume(volume, path string) (info FileInfo, err error) {
@@ -156,61 +223,13 @@ func (s *posix) statFileFromFileVolume(volume, path string) (info FileInfo, err 
 	}, nil
 }
 
-func (s *posix) statDirFromFileVolume(volume, path string) (volInfo VolInfo, err error) {
-	defer func() { err = convertError(err, true) }()
-
-	vol, err := globalFileVolumes.Get(filepath.Join(s.diskPath, volume))
-	if err != nil {
-		return VolInfo{}, err
-	}
-	fi, err := vol.StatDir(path)
-	if err != nil {
-		return VolInfo{}, err
-	}
-	return VolInfo{
-		Name:    fi.Name(),
-		Created: fi.ModTime(),
-	}, nil
-}
-
-func (s *posix) listDirFromFileVolume(volume, dirPath string, count int) (entries []string, err error) {
-	defer func() { err = convertError(err, true) }()
-
-	vol, err := globalFileVolumes.Get(filepath.Join(s.diskPath, volume))
-	if err != nil {
-		return nil, err
-	}
-
-	return vol.List(dirPath, count)
-}
-
-// func (s *posix) appendFileToFileVolume(volume, path string, buf []byte) (err error) {
-// 	return errors.New("not implemented")
-// }
-//
-func (s *posix) deleteVolFromFileVolume(volume string) error {
-	p := filepath.Join(s.diskPath, volume)
-	err := globalFileVolumes.Remove(p)
-	if err == nil {
-		return nil
-	}
-
-	switch {
-	case os.IsPermission(err):
-		return errDiskAccessDenied
-	case isSysErrIO(err):
-		return errFaultyDisk
-	default:
-		return err
-	}
-}
-
-func (s *posix) makeDirFromFileVolume(volume, path string) error {
+func (s *posix) deleteFromFileVolume(volume, path string) (err error) {
+	defer func() { err = convertError(err, false) }()
 	vol, err := globalFileVolumes.Get(filepath.Join(s.diskPath, volume))
 	if err != nil {
 		return err
 	}
-	return vol.MakeDir(path)
+	return vol.Delete(path)
 }
 
 func (s *posix) renameFileFromFileVolume(srcVolume, srcPath, dstVolume, dstPath string) (err error) {

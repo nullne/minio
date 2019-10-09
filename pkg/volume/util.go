@@ -3,6 +3,7 @@ package volume
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 )
 
@@ -34,4 +35,15 @@ func GetValidPath(path string) (string, error) {
 		return path, err
 	}
 	return path, nil
+}
+
+func trimRightSlash(s string) string {
+	if s == "/" {
+		return s
+	}
+	return strings.TrimRight(s, "/")
+}
+
+func isDirectory(s string) bool {
+	return strings.HasSuffix(s, slashSeperator)
 }

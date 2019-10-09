@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/minio/minio/pkg/volume"
+	"github.com/minio/minio/pkg/volume/interfaces"
 	"github.com/tecbot/gorocksdb"
 	"go.uber.org/multierr"
 )
@@ -333,9 +334,9 @@ func randomPickFromTimeRange(sStart, sEnd string) (time.Duration, error) {
 // 	<-result
 // }
 
-func (db *rocksDBIndex) Get(key string) (fi volume.FileInfo, err error) {
+func (db *rocksDBIndex) Get(key string) ([]byte, error) {
 	if db.isClosed() {
-		return fi, volume.ErrDBClosed
+		return nil, interfaces.ErrDBClosed
 	}
 	// defer func(before time.Time) {
 	// 	DiskOperationDuration.With(prometheus.Labels{"operation_type": "RocksDB-Get"}).Observe(time.Since(before).Seconds())
@@ -343,28 +344,28 @@ func (db *rocksDBIndex) Get(key string) (fi volume.FileInfo, err error) {
 	// key = pathJoin(key)
 	value, err := db.db.GetBytes(db.ro, []byte(key))
 	if err != nil {
-		return fi, err
+		return nil, err
 	}
 	if value == nil {
-		return fi, volume.ErrKeyNotExisted
+		return nil, interfaces.ErrKeyNotExisted
 	}
 
-	fi = volume.NewFileInfo(key)
-
-	if volume.DirectIndexSaving(fi.Name()) {
-		fi.Set(value, uint32(len(value)))
-		// fi.data = value
-		// fi.size = uint32(len(value))
-		// fi.modTime = time.Now() // mod time is omitted
-		return
-	}
-	err = fi.UnmarshalBinary(value)
-	return
+	// fi = volume.NewFileInfo(key)
+	//
+	// if volume.DirectIndexSaving(fi.Name()) {
+	// 	fi.Set(value, uint32(len(value)))
+	// 	// fi.data = value
+	// 	// fi.size = uint32(len(value))
+	// 	// fi.modTime = time.Now() // mod time is omitted
+	// 	return
+	// }
+	// err = fi.UnmarshalBinary(value)
+	return value, nil
 }
 
-func (db *rocksDBIndex) Set(key string, fi volume.FileInfo) (err error) {
+func (db *rocksDBIndex) Set(key string, data []byte) error {
 	if db.isClosed() {
-		return volume.ErrDBClosed
+		return interfaces.ErrDBClosed
 	}
 	// defer func(before time.Time) {
 	// 	DiskOperationDuration.With(prometheus.Labels{"operation_type": "RocksDB-Set"}).Observe(time.Since(before).Seconds())
@@ -379,15 +380,12 @@ func (db *rocksDBIndex) Set(key string, fi volume.FileInfo) (err error) {
 	// }()
 
 	// key = pathJoin(key)
-	if volume.DirectIndexSaving(key) {
-		return db.db.Put(db.wo, []byte(key), fi.Data())
-	}
-	return db.db.Put(db.wo, []byte(key), fi.MarshalBinary())
+	return db.db.Put(db.wo, []byte(key), data)
 }
 
 func (db *rocksDBIndex) Delete(keyPrefix string) (err error) {
 	if db.isClosed() {
-		return volume.ErrDBClosed
+		return interfaces.ErrDBClosed
 	}
 	// defer func(before time.Time) {
 	// 	DiskOperationDuration.With(prometheus.Labels{"operation_type": "RocksDB-Delete"}).Observe(time.Since(before).Seconds())
@@ -434,45 +432,45 @@ func (db *rocksDBIndex) Delete(keyPrefix string) (err error) {
 }
 
 // StatPath
-func (db *rocksDBIndex) StatDir(key string) (fi volume.FileInfo, err error) {
-	if db.isClosed() {
-		return fi, volume.ErrDBClosed
-	}
-	// defer func(before time.Time) {
-	// 	DiskOperationDuration.With(prometheus.Labels{"operation_type": "RocksDB-StatDir"}).Observe(time.Since(before).Seconds())
-	// }(time.Now())
-	// key = pathJoin(key)
-	if !strings.HasSuffix(key, "/") {
-		key += "/"
-	}
-	ro := gorocksdb.NewDefaultReadOptions()
-	ro.SetFillCache(false)
-	defer ro.Destroy()
-	it := db.db.NewIterator(ro)
-	defer it.Close()
-	it.Seek([]byte(key))
-	if !it.Valid() {
-		return fi, os.ErrNotExist
-	}
-	k := it.Key()
-	defer k.Free()
-	if !bytes.Equal(k.Data(), []byte(key)) {
-		return volume.NewDirInfo(key), nil
-	}
-
-	v := it.Value()
-	defer v.Free()
-	fi = volume.NewFileInfo(key)
-	// fi.fileName = key
-	err = fi.UnmarshalBinary(v.Data())
-	return
-}
+// func (db *rocksDBIndex) StatDir(key string) (fi volume.FileInfo, err error) {
+// 	if db.isClosed() {
+// 		return fi, volume.ErrDBClosed
+// 	}
+// 	// defer func(before time.Time) {
+// 	// 	DiskOperationDuration.With(prometheus.Labels{"operation_type": "RocksDB-StatDir"}).Observe(time.Since(before).Seconds())
+// 	// }(time.Now())
+// 	// key = pathJoin(key)
+// 	if !strings.HasSuffix(key, "/") {
+// 		key += "/"
+// 	}
+// 	ro := gorocksdb.NewDefaultReadOptions()
+// 	ro.SetFillCache(false)
+// 	defer ro.Destroy()
+// 	it := db.db.NewIterator(ro)
+// 	defer it.Close()
+// 	it.Seek([]byte(key))
+// 	if !it.Valid() {
+// 		return fi, interfaces.ErrKeyNotExisted
+// 	}
+// 	k := it.Key()
+// 	defer k.Free()
+// 	if !bytes.Equal(k.Data(), []byte(key)) {
+// 		return volume.NewDirInfo(key), nil
+// 	}
+//
+// 	v := it.Value()
+// 	defer v.Free()
+// 	fi = volume.NewFileInfo(key)
+// 	// fi.fileName = key
+// 	err = fi.UnmarshalBinary(v.Data())
+// 	return
+// }
 
 // count -1 means unlimited
 // listN list count entries under directory keyPrefix, not including itself
 func (db *rocksDBIndex) ListN(keyPrefix string, count int) ([]string, error) {
 	if db.isClosed() {
-		return nil, volume.ErrDBClosed
+		return nil, interfaces.ErrDBClosed
 	}
 	// defer func(before time.Time) {
 	// 	DiskOperationDuration.With(prometheus.Labels{"operation_type": "RocksDB-ListN"}).Observe(time.Since(before).Seconds())
@@ -516,7 +514,7 @@ func (db *rocksDBIndex) ListN(keyPrefix string, count int) ([]string, error) {
 
 	for count != 0 {
 		if db.isClosed() {
-			return nil, ErrRocksDBClosed
+			return nil, interfaces.ErrDBClosed
 		}
 		if !it.ValidForPrefix([]byte(keyPrefix)) {
 			break
@@ -534,7 +532,7 @@ func (db *rocksDBIndex) ListN(keyPrefix string, count int) ([]string, error) {
 
 		for {
 			if db.isClosed() {
-				return nil, ErrRocksDBClosed
+				return nil, interfaces.ErrDBClosed
 			}
 			it.Next()
 			if !it.ValidForPrefix([]byte(volume.PathJoin(keyPrefix, entry))) {
