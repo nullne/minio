@@ -295,3 +295,7 @@ func (s *posix) renameFileFromFileVolume(srcVolume, srcPath, dstVolume, dstPath 
 
 	return nil
 }
+
+func (s *posix) verifyFileFromFileVolume(volume, path string, fileSize int64, algo BitrotAlgorithm, sum []byte, shardSize int64) (err error) {
+	return errors.New("not implemented")
+}

@@ -1669,21 +1669,39 @@ func (s *posix) VerifyFile(volume, path string, fileSize int64, algo BitrotAlgor
 		return err
 	}
 
-	// Open the file for reading.
-	file, err := os.Open(filePath)
-	if err != nil {
-		switch {
-		case os.IsNotExist(err):
-			return errFileNotFound
-		case os.IsPermission(err):
-			return errFileAccessDenied
-		case isSysErrNotDir(err):
-			return errFileAccessDenied
-		case isSysErrIO(err):
-			return errFaultyDisk
-		default:
+	var file io.ReadCloser
+	var size int64
+
+	if globalFileVolumeEnabled && !isMinioMetaBucketName(volume) {
+		file, err = s.readFileStreamFromFileVolume(volume, path, 0, -1)
+		if err != nil {
 			return err
 		}
+	} else {
+		// Open the file for reading.
+		f, err := os.Open(filePath)
+		if err != nil {
+			switch {
+			case os.IsNotExist(err):
+				return errFileNotFound
+			case os.IsPermission(err):
+				return errFileAccessDenied
+			case isSysErrNotDir(err):
+				return errFileAccessDenied
+			case isSysErrIO(err):
+				return errFaultyDisk
+			default:
+				return err
+			}
+		}
+		if algo == HighwayHash256S {
+		}
+		fi, err := f.Stat()
+		if err != nil {
+			return err
+		}
+		size = fi.Size()
+		file = f
 	}
 
 	// Close the file descriptor.
@@ -1706,18 +1724,18 @@ func (s *posix) VerifyFile(volume, path string, fileSize int64, algo BitrotAlgor
 	buf := make([]byte, shardSize)
 	h := algo.New()
 	hashBuf := make([]byte, h.Size())
-	fi, err := file.Stat()
-	if err != nil {
-		return err
-	}
+	// fi, err := file.Stat()
+	// if err != nil {
+	// 	return err
+	// }
 
 	// Calculate the size of the bitrot file and compare
 	// it with the actual file size.
-	if fi.Size() != bitrotShardFileSize(fileSize, shardSize, algo) {
+	if size != bitrotShardFileSize(fileSize, shardSize, algo) {
 		return errFileUnexpectedSize
 	}
 
-	size := fi.Size()
+	// size := fi.Size()
 	for {
 		if size == 0 {
 			return nil
