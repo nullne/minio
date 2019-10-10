@@ -1669,14 +1669,16 @@ func (s *posix) VerifyFile(volume, path string, fileSize int64, algo BitrotAlgor
 		return err
 	}
 
-	var file io.ReadCloser
+	var file io.Reader
 	var size int64
 
 	if globalFileVolumeEnabled && !isMinioMetaBucketName(volume) {
-		file, err = s.readFileStreamFromFileVolume(volume, path, 0, -1)
+		bs, err := s.readAllFromFileVolume(volume, path)
 		if err != nil {
 			return err
 		}
+		size = int64(len(bs))
+		file = bytes.NewBuffer(bs)
 	} else {
 		// Open the file for reading.
 		f, err := os.Open(filePath)
@@ -1694,18 +1696,17 @@ func (s *posix) VerifyFile(volume, path string, fileSize int64, algo BitrotAlgor
 				return err
 			}
 		}
+		// Close the file descriptor.
+		defer f.Close()
 		if algo == HighwayHash256S {
+			fi, err := f.Stat()
+			if err != nil {
+				return err
+			}
+			size = fi.Size()
+			file = f
 		}
-		fi, err := f.Stat()
-		if err != nil {
-			return err
-		}
-		size = fi.Size()
-		file = f
 	}
-
-	// Close the file descriptor.
-	defer file.Close()
 
 	if algo != HighwayHash256S {
 		bufp := s.pool.Get().(*[]byte)

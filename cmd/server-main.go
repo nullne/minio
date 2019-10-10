@@ -280,9 +280,11 @@ func serverMain(ctx *cli.Context) {
 		// Init global heal state
 		globalAllHealState = initHealState()
 		globalSweepHealState = initHealState()
-		globalFileVolumes, err = initGlobalFileVolume()
-		if err != nil {
-			logger.Fatal(err, "Unable to initialize file volumes")
+		if globalFileVolumeEnabled {
+			globalFileVolumes, err = initGlobalFileVolume()
+			if err != nil {
+				logger.Fatal(err, "Unable to initialize file volumes")
+			}
 		}
 	}
 

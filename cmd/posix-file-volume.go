@@ -30,7 +30,9 @@ func initGlobalFileVolume() (interfaces.Volumes, error) {
 
 func convertError(err error, directory bool) error {
 	switch {
-	case err == os.ErrNotExist:
+	case err == interfaces.ErrIsNotReguler:
+		return errIsNotRegular
+	case err == os.ErrNotExist || err == interfaces.ErrNotExisted || err == interfaces.ErrKeyNotExisted:
 		if directory {
 			return errVolumeNotFound
 		} else {
@@ -93,11 +95,6 @@ func (s *posix) deleteVolFromFileVolume(volume string) error {
 	default:
 		return err
 	}
-}
-
-// @TODO
-func (s *posix) walkFromFileVolume(volume, dirPath, marker string, recursive bool, leafFile string, readMetadataFn readMetadataFunc, endWalkCh chan struct{}) (ch chan FileInfo, err error) {
-	return nil, errors.New("not implemented")
 }
 
 func (s *posix) listDirFromFileVolume(volume, dirPath string, count int) (entries []string, err error) {
@@ -232,6 +229,7 @@ func (s *posix) deleteFromFileVolume(volume, path string) (err error) {
 	return vol.Delete(path)
 }
 
+// @TODO should implement other type of rename
 func (s *posix) renameFileFromFileVolume(srcVolume, srcPath, dstVolume, dstPath string) (err error) {
 	defer func() {
 		err = convertError(err, false)
@@ -294,8 +292,4 @@ func (s *posix) renameFileFromFileVolume(srcVolume, srcPath, dstVolume, dstPath 
 	}
 
 	return nil
-}
-
-func (s *posix) verifyFileFromFileVolume(volume, path string, fileSize int64, algo BitrotAlgorithm, sum []byte, shardSize int64) (err error) {
-	return errors.New("not implemented")
 }

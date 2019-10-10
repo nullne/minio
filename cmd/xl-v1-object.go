@@ -96,6 +96,13 @@ func (xl xlObjects) CopyObject(ctx context.Context, srcBucket, srcObject, dstBuc
 
 		var onlineDisks []StorageAPI
 
+		if globalFileVolumeEnabled && !isMinioMetaBucketName(srcBucket) {
+			if onlineDisks, err = writeUniqueXLMetadata(ctx, storageDisks, srcBucket, srcObject, metaArr, writeQuorum); err != nil {
+				return oi, toObjectErr(err, srcBucket, srcObject)
+			}
+			return xlMeta.ToObjectInfo(srcBucket, srcObject), nil
+		}
+
 		tempObj := mustGetUUID()
 
 		// Cleanup in case of xl.json writing failure
@@ -515,6 +522,9 @@ func (xl xlObjects) PutObject(ctx context.Context, bucket string, object string,
 
 // putObject wrapper for xl PutObject
 func (xl xlObjects) putObject(ctx context.Context, bucket string, object string, r *PutObjReader, opts ObjectOptions) (objInfo ObjectInfo, err error) {
+	if globalFileVolumeEnabled && !isMinioMetaBucketName(bucket) {
+		return xl.putObjectViaFileVolume(ctx, bucket, object, r, opts)
+	}
 	data := r.Reader
 
 	uniqueID := mustGetUUID()
@@ -713,6 +723,10 @@ func (xl xlObjects) putObject(ctx context.Context, bucket string, object string,
 // all the disks in parallel, including `xl.json` associated with the
 // object.
 func (xl xlObjects) deleteObject(ctx context.Context, bucket, object string, writeQuorum int, isDir bool) error {
+	if globalFileVolumeEnabled && !isMinioMetaBucketName(bucket) {
+		return xl.deleteObjectViaFileVolume(ctx, bucket, object, writeQuorum, isDir)
+	}
+
 	var disks []StorageAPI
 	var err error
 
@@ -775,6 +789,9 @@ func (xl xlObjects) deleteObject(ctx context.Context, bucket, object string, wri
 // all the disks in parallel, including `xl.json` associated with the
 // object.
 func (xl xlObjects) doDeleteObjects(ctx context.Context, bucket string, objects []string, errs []error, writeQuorums []int, isDirs []bool) ([]error, error) {
+	if globalFileVolumeEnabled && !isMinioMetaBucketName(bucket) {
+		return xl.doDeleteObjectsViaFileVolume(ctx, bucket, objects, errs, writeQuorums, isDirs)
+	}
 	var tmpObjs = make([]string, len(objects))
 	var disks = xl.getDisks()
 
