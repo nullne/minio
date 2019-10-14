@@ -27,6 +27,15 @@ func (xl xlObjects) putObjectViaFileVolume(ctx context.Context, bucket string, o
 	// writeQuorum is dataBlocks + 1
 	writeQuorum := dataDrives + 1
 
+	// delete all if failed
+	undo := false
+	defer func() {
+		if !undo {
+			return
+		}
+		xl.deleteObject(ctx, bucket, object, writeQuorum, hasSuffix(object, SlashSeparator))
+	}()
+
 	// Delete temporary object in the event of failure.
 	// If PutObject succeeded there would be no temporary
 	// object to delete.
@@ -44,6 +53,7 @@ func (xl xlObjects) putObjectViaFileVolume(ctx context.Context, bucket string, o
 		}
 
 		if err = xl.putObjectDir(ctx, bucket, object, writeQuorum); err != nil {
+			undo = true
 			return ObjectInfo{}, toObjectErr(err, bucket, object)
 		}
 
@@ -67,6 +77,27 @@ func (xl xlObjects) putObjectViaFileVolume(ctx context.Context, bucket string, o
 	// -- FIXME (this also causes performance issue when disks are down).
 	if xl.parentDirIsObject(ctx, bucket, path.Dir(object)) {
 		return ObjectInfo{}, toObjectErr(errFileParentIsFile, bucket, object)
+	}
+
+	if xl.isObject(bucket, object) {
+		// Deny if WORM is enabled
+		if globalWORMEnabled {
+			return ObjectInfo{}, ObjectAlreadyExists{Bucket: bucket, Object: object}
+		}
+
+		// // Rename if an object already exists to temporary location.
+		// newUniqueID := mustGetUUID()
+		//
+		// // Delete successfully renamed object.
+		// defer xl.deleteObject(ctx, minioMetaTmpBucket, newUniqueID, writeQuorum, false)
+		//
+		// // NOTE: Do not use online disks slice here: the reason is that existing object should be purged
+		// // regardless of `xl.json` status and rolled back in case of errors. Also allow renaming the
+		// // existing object if it is not present in quorum disks so users can overwrite stale objects.
+		// _, err = rename(ctx, xl.getDisks(), bucket, object, minioMetaTmpBucket, newUniqueID, true, writeQuorum, []error{errFileNotFound})
+		// if err != nil {
+		// 	return ObjectInfo{}, toObjectErr(err, bucket, object)
+		// }
 	}
 
 	// Initialize parts metadata
@@ -105,6 +136,7 @@ func (xl xlObjects) putObjectViaFileVolume(ctx context.Context, bucket string, o
 	}
 
 	partName := "part.1"
+	fileName := pathJoin(object, partName)
 	// tempErasureObj := pathJoin(uniqueID, partName)
 
 	writers := make([]io.Writer, len(onlineDisks))
@@ -112,19 +144,21 @@ func (xl xlObjects) putObjectViaFileVolume(ctx context.Context, bucket string, o
 		if disk == nil {
 			continue
 		}
-		writers[i] = newBitrotWriter(disk, bucket, object, erasure.ShardFileSize(data.Size()), DefaultBitrotAlgorithm, erasure.ShardSize())
+		writers[i] = newBitrotWriter(disk, bucket, fileName, erasure.ShardFileSize(data.Size()), DefaultBitrotAlgorithm, erasure.ShardSize())
 	}
 
 	n, erasureErr := erasure.Encode(ctx, data, writers, buffer, erasure.dataBlocks+1)
 	closeBitrotWriters(writers)
 	if erasureErr != nil {
-		return ObjectInfo{}, toObjectErr(erasureErr, bucket, object)
+		undo = true
+		return ObjectInfo{}, toObjectErr(erasureErr, bucket, fileName)
 	}
 
 	// Should return IncompleteBody{} error when reader has fewer bytes
 	// than specified in request header.
 	if n < data.Size() {
 		logger.LogIf(ctx, IncompleteBody{})
+		undo = true
 		return ObjectInfo{}, IncompleteBody{}
 	}
 
@@ -147,27 +181,6 @@ func (xl xlObjects) putObjectViaFileVolume(ctx context.Context, bucket string, o
 		opts.UserDefined["content-type"] = mimedb.TypeByExtension(path.Ext(object))
 	}
 
-	if xl.isObject(bucket, object) {
-		// Deny if WORM is enabled
-		if globalWORMEnabled {
-			return ObjectInfo{}, ObjectAlreadyExists{Bucket: bucket, Object: object}
-		}
-
-		// // Rename if an object already exists to temporary location.
-		// newUniqueID := mustGetUUID()
-		//
-		// // Delete successfully renamed object.
-		// defer xl.deleteObject(ctx, minioMetaTmpBucket, newUniqueID, writeQuorum, false)
-		//
-		// // NOTE: Do not use online disks slice here: the reason is that existing object should be purged
-		// // regardless of `xl.json` status and rolled back in case of errors. Also allow renaming the
-		// // existing object if it is not present in quorum disks so users can overwrite stale objects.
-		// _, err = rename(ctx, xl.getDisks(), bucket, object, minioMetaTmpBucket, newUniqueID, true, writeQuorum, []error{errFileNotFound})
-		// if err != nil {
-		// 	return ObjectInfo{}, toObjectErr(err, bucket, object)
-		// }
-	}
-
 	// Fill all the necessary metadata.
 	// Update `xl.json` content on each disks.
 	for index := range partsMetadata {
@@ -178,6 +191,7 @@ func (xl xlObjects) putObjectViaFileVolume(ctx context.Context, bucket string, o
 
 	// Write unique `xl.json` for each disk.
 	if onlineDisks, err = writeUniqueXLMetadata(ctx, onlineDisks, bucket, object, partsMetadata, writeQuorum); err != nil {
+		undo = true
 		return ObjectInfo{}, toObjectErr(err, bucket, object)
 	}
 
@@ -206,31 +220,32 @@ func (xl xlObjects) putObjectViaFileVolume(ctx context.Context, bucket string, o
 }
 
 func (xl xlObjects) deleteObjectViaFileVolume(ctx context.Context, bucket, object string, writeQuorum int, isDir bool) error {
-	var disks []StorageAPI
-	var err error
+	// var disks []StorageAPI
+	// var err error
 
-	tmpObj := mustGetUUID()
-	if bucket == minioMetaTmpBucket {
-		tmpObj = object
-		disks = xl.getDisks()
-	} else {
-		// Rename the current object while requiring write quorum, but also consider
-		// that a non found object in a given disk as a success since it already
-		// confirms that the object doesn't have a part in that disk (already removed)
-		if isDir {
-			disks, err = rename(ctx, xl.getDisks(), bucket, object, minioMetaTmpBucket, tmpObj, true, writeQuorum,
-				[]error{errFileNotFound, errFileAccessDenied})
-		} else {
-			disks, err = rename(ctx, xl.getDisks(), bucket, object, minioMetaTmpBucket, tmpObj, true, writeQuorum,
-				[]error{errFileNotFound})
-		}
-		if err != nil {
-			return toObjectErr(err, bucket, object)
-		}
-	}
+	// tmpObj := mustGetUUID()
+	// if bucket == minioMetaTmpBucket {
+	// 	tmpObj = object
+	// 	disks = xl.getDisks()
+	// } else {
+	// 	// Rename the current object while requiring write quorum, but also consider
+	// 	// that a non found object in a given disk as a success since it already
+	// 	// confirms that the object doesn't have a part in that disk (already removed)
+	// 	if isDir {
+	// 		disks, err = rename(ctx, xl.getDisks(), bucket, object, minioMetaTmpBucket, tmpObj, true, writeQuorum,
+	// 			[]error{errFileNotFound, errFileAccessDenied})
+	// 	} else {
+	// 		disks, err = rename(ctx, xl.getDisks(), bucket, object, minioMetaTmpBucket, tmpObj, true, writeQuorum,
+	// 			[]error{errFileNotFound})
+	// 	}
+	// 	if err != nil {
+	// 		return toObjectErr(err, bucket, object)
+	// 	}
+	// }
 
 	// Initialize sync waitgroup.
 	var wg sync.WaitGroup
+	disks := xl.getDisks()
 
 	// Initialize list of errors.
 	var dErrs = make([]error, len(disks))
@@ -266,33 +281,33 @@ func (xl xlObjects) deleteObjectViaFileVolume(ctx context.Context, bucket, objec
 }
 
 func (xl xlObjects) doDeleteObjectsViaFileVolume(ctx context.Context, bucket string, objects []string, errs []error, writeQuorums []int, isDirs []bool) ([]error, error) {
-	var tmpObjs = make([]string, len(objects))
+	// var tmpObjs = make([]string, len(objects))
 	var disks = xl.getDisks()
-
-	if bucket == minioMetaTmpBucket {
-		copy(tmpObjs, objects)
-	} else {
-		for i, object := range objects {
-			if errs[i] != nil {
-				continue
-			}
-			var err error
-			tmpObjs[i] = mustGetUUID()
-			// Rename the current object while requiring write quorum, but also consider
-			// that a non found object in a given disk as a success since it already
-			// confirms that the object doesn't have a part in that disk (already removed)
-			if isDirs[i] {
-				disks, err = rename(ctx, xl.getDisks(), bucket, object, minioMetaTmpBucket, tmpObjs[i], true, writeQuorums[i],
-					[]error{errFileNotFound, errFileAccessDenied})
-			} else {
-				disks, err = rename(ctx, xl.getDisks(), bucket, object, minioMetaTmpBucket, tmpObjs[i], true, writeQuorums[i],
-					[]error{errFileNotFound})
-			}
-			if err != nil {
-				errs[i] = err
-			}
-		}
-	}
+	//
+	// if bucket == minioMetaTmpBucket {
+	// 	copy(tmpObjs, objects)
+	// } else {
+	// 	for i, object := range objects {
+	// 		if errs[i] != nil {
+	// 			continue
+	// 		}
+	// 		var err error
+	// 		tmpObjs[i] = mustGetUUID()
+	// 		// Rename the current object while requiring write quorum, but also consider
+	// 		// that a non found object in a given disk as a success since it already
+	// 		// confirms that the object doesn't have a part in that disk (already removed)
+	// 		if isDirs[i] {
+	// 			disks, err = rename(ctx, xl.getDisks(), bucket, object, minioMetaTmpBucket, tmpObjs[i], true, writeQuorums[i],
+	// 				[]error{errFileNotFound, errFileAccessDenied})
+	// 		} else {
+	// 			disks, err = rename(ctx, xl.getDisks(), bucket, object, minioMetaTmpBucket, tmpObjs[i], true, writeQuorums[i],
+	// 				[]error{errFileNotFound})
+	// 		}
+	// 		if err != nil {
+	// 			errs[i] = err
+	// 		}
+	// 	}
+	// }
 
 	// Initialize list of errors.
 	var opErrs = make([]error, len(disks))
@@ -304,7 +319,7 @@ func (xl xlObjects) doDeleteObjectsViaFileVolume(ctx context.Context, bucket str
 			opErrs[index] = errDiskNotFound
 			continue
 		}
-		delObjErrs[index], opErrs[index] = cleanupObjectsBulk(ctx, disk, minioMetaTmpBucket, tmpObjs, errs)
+		delObjErrs[index], opErrs[index] = cleanupObjectsBulkFromFileVolume(ctx, disk, bucket, objects, errs)
 		if opErrs[index] == errVolumeNotFound {
 			opErrs[index] = nil
 		}
@@ -327,6 +342,24 @@ func (xl xlObjects) doDeleteObjectsViaFileVolume(ctx context.Context, bucket str
 			}
 		}
 		errs[objIndex] = reduceWriteQuorumErrs(ctx, listErrs, objectOpIgnoredErrs, writeQuorums[objIndex])
+	}
+
+	return errs, nil
+}
+
+func cleanupObjectsBulkFromFileVolume(ctx context.Context, storage StorageAPI, volume string, objsPaths []string, errs []error) ([]error, error) {
+	dErrs, err := storage.DeleteFileBulk(volume, objsPaths)
+	if err != nil {
+		return nil, err
+	}
+
+	// Map files deletion errors to the correspondent objects
+	for i := range dErrs {
+		if dErrs[i] != nil {
+			if errs[i] != nil {
+				errs[i] = dErrs[i]
+			}
+		}
 	}
 
 	return errs, nil
