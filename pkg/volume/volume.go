@@ -74,6 +74,11 @@ func NewVolume(ctx context.Context, dir string, idx Index) (*Volume, error) {
 	}, nil
 }
 
+// MUST set before volume is working
+func (v *Volume) SetDirectIndexSaving(fn func(string) bool) {
+	v.directIndexSaving = fn
+}
+
 // ReadAll reads from r until an error or EOF and returns the data it read.
 // A successful call returns err == nil, not err == EOF. Because ReadAll is
 // defined to read from src until EOF, it does not treat an EOF from Read

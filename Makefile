@@ -77,6 +77,10 @@ build: checks
 	@echo "Building minio binary to './minio'"
 	@GO111MODULE=on CGO_ENABLED=0 go build -tags kqueue --ldflags $(BUILD_LDFLAGS) -o $(PWD)/minio 1>/dev/null
 
+rocksdb-file-volume: checks
+	@echo "Building rocksdb file volume plugin to './rocksdb-file-volume.so'"
+	@GO111MODULE=on CGO_ENABLED=1 go build -tags kqueue -buildmode=plugin --ldflags $(BUILD_LDFLAGS) -o $(PWD)/rocksdb-file-volume.so github.com/minio/minio/pkg/volume/plugin/rocksdb 1>/dev/null
+
 docker: build
 	@docker build -t $(TAG) . -f Dockerfile.dev
 
@@ -93,3 +97,4 @@ clean:
 	@rm -rvf minio
 	@rm -rvf build
 	@rm -rvf release
+	@rm -rvf rocksdb-file-volume.so

@@ -141,7 +141,7 @@ func (fs *files) prepareFileToWrite(ctx context.Context) {
 		// loop existed files
 		for i, f := range files {
 			if f != nil {
-				if v := atomic.LoadUint32(&(f.deleted)); v == 1 {
+				if f.isDeleted() {
 					files[i] = nil
 					f = nil
 				}
@@ -158,7 +158,7 @@ func (fs *files) prepareFileToWrite(ctx context.Context) {
 
 		wr, err := createFile(fs.dir, fid)
 		if err != nil {
-			logger.LogIf(ctx, err)
+			// logger.LogIf(ctx, err)
 			fs.setCreateFileError(err)
 			// if the error is no space, no need to retry
 			if isSysErrNoSpace(err) {
@@ -171,7 +171,7 @@ func (fs *files) prepareFileToWrite(ctx context.Context) {
 		if files[fid] == nil {
 			f, err := openFileToRead(wr.path)
 			if err != nil {
-				logger.LogIf(ctx, err)
+				// logger.LogIf(ctx, err)
 				fs.setCreateFileError(err)
 				time.Sleep(10 * time.Second)
 				continue

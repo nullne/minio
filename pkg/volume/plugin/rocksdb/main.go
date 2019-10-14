@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"strings"
 
 	"github.com/minio/minio/pkg/volume"
 	"github.com/minio/minio/pkg/volume/index/rocksdb"
@@ -27,6 +28,9 @@ func NewVolume(ctx context.Context, dir string) (interfaces.Volume, error) {
 		idx.Close()
 		return nil, err
 	}
+	v.SetDirectIndexSaving(func(key string) bool {
+		return strings.HasSuffix(key, "xl.json")
+	})
 	return v, nil
 }
 

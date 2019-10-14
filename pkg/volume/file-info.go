@@ -56,10 +56,10 @@ func NewShortFileInfo(name string) FileInfo {
 
 // trim the right slash if possible
 func (f FileInfo) Name() string {
-	if f.name == "/" {
+	if f.name == slashSeperator {
 		return f.name
 	}
-	return strings.TrimRight(f.name, "/")
+	return strings.TrimRight(f.name, slashSeperator)
 }
 
 func (f FileInfo) Size() int64 {
