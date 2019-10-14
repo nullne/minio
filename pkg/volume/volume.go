@@ -61,6 +61,9 @@ func NewVolume(ctx context.Context, dir string, idx Index) (*Volume, error) {
 	if dir, err = GetValidPath(dir); err != nil {
 		return nil, err
 	}
+	if idx == nil {
+		return nil, errors.New("nil index")
+	}
 
 	files, err := newFiles(ctx, path.Join(dir, DataDir))
 	if err != nil {

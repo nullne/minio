@@ -12,6 +12,8 @@ import (
 type Volumes struct {
 	volumes sync.Map
 	lock    sync.Map
+
+	newVolume func(context.Context, string) (interfaces.Volume, error)
 }
 
 var (
@@ -19,8 +21,11 @@ var (
 	ErrVolumeNotFound = errors.New("file volume not found")
 )
 
+func NewVolumes(newVolume func(context.Context, string) (interfaces.Volume, error)) *Volumes {
+	return &Volumes{newVolume: newVolume}
+}
+
 func (vs *Volumes) Add(ctx context.Context, p string) error {
-	// check existence
 	_, err := vs.Get(p)
 	if err == nil {
 		return nil
@@ -32,7 +37,7 @@ func (vs *Volumes) Add(ctx context.Context, p string) error {
 	}
 	defer vs.lock.Delete(p)
 
-	vol, err := NewVolume(ctx, p, nil)
+	vol, err := vs.newVolume(ctx, p)
 	if err != nil {
 		return err
 	}

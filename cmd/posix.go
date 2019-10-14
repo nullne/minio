@@ -1322,11 +1322,11 @@ func (s *posix) WriteAll(volume, path string, reader io.Reader) (err error) {
 		return errFaultyDisk
 	}
 
-	buf, err := ioutil.ReadAll(reader)
-	if err != nil {
-		return err
-	}
 	if globalFileVolumeEnabled && !isMinioMetaBucketName(volume) {
+		buf, err := ioutil.ReadAll(reader)
+		if err != nil {
+			return err
+		}
 		return s.writeAllToFileVolume(volume, path, buf)
 	}
 

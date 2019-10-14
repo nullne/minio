@@ -35,5 +35,5 @@ func NewVolume(ctx context.Context, dir string) (interfaces.Volume, error) {
 }
 
 func NewVolumes() interfaces.Volumes {
-	return &volume.Volumes{}
+	return volume.NewVolumes(NewVolume)
 }

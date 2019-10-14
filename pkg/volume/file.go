@@ -66,7 +66,7 @@ func createFile(dir string, id int32) (*file, error) {
 
 	var err error
 	// @TODO test direct IO vs indirect IO
-	f.data, err = disk.OpenFileDirectIO(p, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0666)
+	f.data, err = disk.OpenFileDirectIO(p, os.O_CREATE|os.O_WRONLY, 0666)
 	// f.data, err = os.OpenFile(p, os.O_WRONLY|os.O_CREATE, 0666)
 	if err != nil {
 		// logger.LogIf(context.Background(), fmt.Errorf("failed to create file %s to write: %v", p, err))

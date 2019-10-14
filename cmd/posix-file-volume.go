@@ -24,6 +24,7 @@ func initGlobalFileVolume() (interfaces.Volumes, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	vs := newVolumes.(func() interfaces.Volumes)()
 	return vs, nil
 }
