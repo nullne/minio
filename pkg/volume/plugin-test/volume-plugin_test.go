@@ -29,6 +29,12 @@ func newVolumeSetup() (func(context.Context, string) (interfaces.Volume, error),
 	if err != nil {
 		return nil, "", err
 	}
+
+	_, err = p.Lookup("NewVolumes")
+	if err != nil {
+		return nil, "", err
+	}
+
 	newVolume, err := p.Lookup("NewVolume")
 	if err != nil {
 		return nil, "", err

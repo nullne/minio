@@ -527,7 +527,7 @@ func (s *posix) MakeVol(volume string) (err error) {
 	// 	return s.mkdirFromFileVolume(bucket, volume[idx+1:])
 	// }
 
-	vs := strings.SplitAfterN(volume, SlashSeparator, 2)
+	vs := strings.SplitN(volume, SlashSeparator, 2)
 	if len(vs) == 2 && globalFileVolumeEnabled && !isMinioMetaBucketName(vs[0]) {
 		return s.mkdirFromFileVolume(vs[0], vs[1])
 	}
@@ -647,7 +647,7 @@ func (s *posix) StatVol(volume string) (volInfo VolInfo, err error) {
 	}
 
 	// sometimes StatVol will be invoked to Stat dir
-	if vs := strings.SplitAfterN(volume, SlashSeparator, 2); len(vs) == 2 && globalFileVolumeEnabled && !isMinioMetaBucketName(vs[0]) {
+	if vs := strings.SplitN(volume, SlashSeparator, 2); len(vs) == 2 && globalFileVolumeEnabled && !isMinioMetaBucketName(vs[0]) {
 		return s.statDirFromFileVolume(vs[0], vs[1])
 	}
 

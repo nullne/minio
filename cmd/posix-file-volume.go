@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path"
@@ -16,6 +17,7 @@ import (
 
 func initGlobalFileVolume() (interfaces.Volumes, error) {
 	pluginPath := os.Getenv("MINIO_FILE_VOLUME_PLUGIN_PATH")
+	fmt.Println(pluginPath)
 	p, err := plugin.Open(pluginPath)
 	if err != nil {
 		return nil, err
