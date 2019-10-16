@@ -3,7 +3,6 @@ package cmd
 import (
 	"bytes"
 	"encoding/hex"
-	"errors"
 	"io"
 	"os"
 	"path"
@@ -14,7 +13,7 @@ import (
 	"gopkg.in/bufio.v1"
 )
 
-func initGlobalFileVolume() (interfaces.Volumes, error) {
+func initGlobalFileVolumes() (interfaces.Volumes, error) {
 	pluginPath := os.Getenv("MINIO_FILE_VOLUME_PLUGIN_PATH")
 	p, err := plugin.Open(pluginPath)
 	if err != nil {
@@ -93,12 +92,14 @@ func (s *posix) deleteVolFromFileVolume(volume string) error {
 		return errDiskAccessDenied
 	case isSysErrIO(err):
 		return errFaultyDisk
+	case err == interfaces.ErrNotExisted:
+		return errVolumeNotFound
 	default:
 		return err
 	}
 }
 
-func (s *posix) listDirFromFileVolume(volume, dirPath string, count int) (entries []string, err error) {
+func (s *posix) listDirFromFileVolume(volume, dirPath, leafFile string, count int) (entries []string, err error) {
 	defer func() { err = convertError(err, true) }()
 
 	vol, err := globalFileVolumes.Get(filepath.Join(s.diskPath, volume))
@@ -106,7 +107,7 @@ func (s *posix) listDirFromFileVolume(volume, dirPath string, count int) (entrie
 		return nil, err
 	}
 
-	return vol.List(dirPath, count)
+	return vol.List(dirPath, leafFile, count)
 }
 
 func (s *posix) readAllFromFileVolume(volume, path string) (buf []byte, err error) {
@@ -174,6 +175,13 @@ func (s *posix) readFileStreamFromFileVolume(volume, path string, offset, length
 }
 
 func (s *posix) createFileToFileVolume(volume, path string, fileSize int64, r io.Reader) error {
+	if err := s.checkDiskFound(); err != nil {
+		return err
+	}
+	if _, err := s.getVolDir(volume); err != nil {
+		return err
+	}
+
 	bs := make([]byte, fileSize)
 	_, err := io.ReadFull(r, bs)
 	if err == nil {
@@ -195,7 +203,27 @@ func (s *posix) writeAllToFileVolume(volume, path string, buf []byte) (err error
 }
 
 func (s *posix) appendFileToFileVolume(volume, path string, buf []byte) (err error) {
-	return errors.New("not implemented")
+	defer func() { err = convertError(err, false) }()
+	if err = s.checkDiskFound(); err != nil {
+		return err
+	}
+	_, err = s.getVolDir(volume)
+	if err != nil {
+		return err
+	}
+
+	vol, err := globalFileVolumes.Get(filepath.Join(s.diskPath, volume))
+	if err != nil {
+		return err
+	}
+	bs, err := vol.ReadAll(path)
+	if err != interfaces.ErrNotExisted || err == interfaces.ErrKeyNotExisted {
+		return vol.WriteAll(path, buf)
+	} else if err != nil {
+		return err
+	} else {
+		return vol.WriteAll(path, append(bs, buf...))
+	}
 }
 
 func (s *posix) statFileFromFileVolume(volume, path string) (info FileInfo, err error) {

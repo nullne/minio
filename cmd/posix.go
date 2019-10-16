@@ -828,7 +828,7 @@ func (s *posix) ListDir(volume, dirPath string, count int, leafFile string) (ent
 	}
 
 	if globalFileVolumeEnabled && !isMinioMetaBucketName(volume) {
-		return s.listDirFromFileVolume(volume, dirPath, count)
+		return s.listDirFromFileVolume(volume, dirPath, leafFile, count)
 	}
 
 	dirPath = pathJoin(volumeDir, dirPath)
@@ -1359,6 +1359,10 @@ func (s *posix) AppendFile(volume, path string, buf []byte) (err error) {
 		return errFaultyDisk
 	}
 
+	if globalFileVolumeEnabled && !isMinioMetaBucketName(volume) {
+		return s.appendFileToFileVolume(volume, path, buf)
+	}
+
 	var w *os.File
 	// Create file if not found. Not doing O_DIRECT here to avoid the code that does buffer aligned writes.
 	// AppendFile() is only used by healing code to heal objects written in old format.
@@ -1704,8 +1708,8 @@ func (s *posix) VerifyFile(volume, path string, fileSize int64, algo BitrotAlgor
 				return err
 			}
 			size = fi.Size()
-			file = f
 		}
+		file = f
 	}
 
 	if algo != HighwayHash256S {

@@ -84,6 +84,9 @@ func (xl xlObjects) putObjectViaFileVolume(ctx context.Context, bucket string, o
 		if globalWORMEnabled {
 			return ObjectInfo{}, ObjectAlreadyExists{Bucket: bucket, Object: object}
 		}
+		if err := xl.deleteObject(ctx, bucket, object, writeQuorum, hasSuffix(object, SlashSeparator)); err != nil {
+			return ObjectInfo{}, toObjectErr(err, bucket, object)
+		}
 
 		// // Rename if an object already exists to temporary location.
 		// newUniqueID := mustGetUUID()

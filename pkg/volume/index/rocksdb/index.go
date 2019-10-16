@@ -418,6 +418,9 @@ func (db *rocksDBIndex) Delete(keyPrefix string) (err error) {
 	if err := it.Err(); err != nil {
 		return err
 	}
+	if len(keys) == 0 {
+		return interfaces.ErrNotExisted
+	}
 	for _, key := range keys {
 		if err := db.db.Delete(db.wo, key); err != nil {
 			return err
@@ -468,7 +471,7 @@ func (db *rocksDBIndex) Delete(keyPrefix string) (err error) {
 
 // count -1 means unlimited
 // listN list count entries under directory keyPrefix, not including itself
-func (db *rocksDBIndex) ListN(keyPrefix string, count int) ([]string, error) {
+func (db *rocksDBIndex) ListN(keyPrefix, leaf string, count int) ([]string, error) {
 	if db.isClosed() {
 		return nil, interfaces.ErrDBClosed
 	}
@@ -499,8 +502,22 @@ func (db *rocksDBIndex) ListN(keyPrefix string, count int) ([]string, error) {
 	}
 
 	addToEntries := func(entry string) {
+		if entry == "" {
+			return
+		}
 		if _, ok := entryMap[entry]; ok {
 			return
+		}
+		if strings.HasSuffix(entry, "/") {
+			if _, ok := entryMap[strings.TrimRight(entry, "/")]; ok {
+				return
+			}
+		} else {
+			if _, ok := entryMap[entry+"/"]; ok {
+				entryMap[entry] = struct{}{}
+				delete(entryMap, entry+"/")
+				return
+			}
 		}
 		entryMap[entry] = struct{}{}
 		count--
@@ -520,11 +537,20 @@ func (db *rocksDBIndex) ListN(keyPrefix string, count int) ([]string, error) {
 			break
 		}
 		key := it.Key()
-		entry := volume.SubDir(string(key.Data()), keyPrefix)
+		skey := string(key.Data())
+		entry := volume.SubDir(skey, keyPrefix)
 		if entry == "" {
 			key.Free()
 			it.Next()
 			continue
+		}
+
+		if leaf != "" {
+			if _, err := db.Get(path.Join(keyPrefix, entry, leaf)); err == nil {
+				entry = strings.TrimRight(entry, "/")
+			} else if err != nil && err != interfaces.ErrKeyNotExisted {
+				return nil, err
+			}
 		}
 		addToEntries(entry)
 

@@ -20,7 +20,7 @@ type Volume interface {
 	ReadFileStream(key string, offset, length int64) (io.ReadCloser, error)
 	WriteAll(key string, data []byte) error
 	Delete(path string) error
-	List(p string, count int) ([]string, error)
+	List(p, leafFile string, count int) ([]string, error)
 	Stat(key string) (os.FileInfo, error)
 	Mkdir(p string) error
 	Maintain(ctx context.Context) error

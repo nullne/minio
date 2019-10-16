@@ -23,7 +23,7 @@ type Index interface {
 	Set(key string, data []byte) error
 	Delete(key string) error
 	// StatDir(key string) (fi FileInfo, err error)
-	ListN(key string, count int) ([]string, error)
+	ListN(key, leafFile string, count int) ([]string, error)
 	ScanAll(ctx context.Context, filter func(string) bool) (chan FileInfo, chan error)
 	Close() error
 	Remove() error
@@ -49,30 +49,58 @@ func fileVolumeStoring(key string) bool {
 	return !(strings.HasSuffix(key, xlJSONFile) || strings.HasSuffix(key, "/"))
 }
 
-// p1		p2	 	result
-// a/b/c 	        a/
-// a               a
-// a       a
-// a/b/c  	a       b/
+// entry    prefix	 	result
+// a/b/c 	            a/
+// a                    a
+// a        a
+// a/b/c  	a           b/
 // aa/b/c 	a
 // a/b/c 	b
 // p1, p2 will never start with '/'
-func SubDir(p1, p2 string) string {
-	if p2 == "" {
-		goto firstPart
+func SubDir(entry, prefix string) string {
+	if !strings.HasPrefix(entry, slashSeperator) {
+		entry = slashSeperator + entry
 	}
-	if !strings.HasSuffix(p2, "/") {
-		p2 += "/"
+
+	// "" -> ""
+	// "prefix" -> "/prefix"
+	// "/" -> ""
+	// "prefix/" -> "/prefix"
+	// "/prefix/" -> "/prefix"
+	if prefix != "" && !strings.HasPrefix(prefix, slashSeperator) {
+		prefix = slashSeperator + prefix
 	}
-	if !strings.HasPrefix(p1, p2) {
+	if strings.HasSuffix(prefix, slashSeperator) {
+		prefix = strings.TrimSuffix(prefix, slashSeperator)
+	}
+
+	if !strings.HasPrefix(entry, prefix) {
 		return ""
 	}
-	p1 = strings.TrimPrefix(p1, p2)
-firstPart:
-	p1 = strings.TrimPrefix(p1, "/")
-	idx := strings.Index(p1, "/")
-	if idx == -1 {
-		return p1
+	s := strings.TrimPrefix(entry, prefix)
+	if !strings.HasPrefix(s, slashSeperator) {
+		return ""
 	}
-	return p1[:idx+1]
+	s = strings.TrimPrefix(s, slashSeperator)
+
+	ss := strings.SplitAfterN(s, slashSeperator, 2)
+	return ss[0]
+
+	// 	if p2 == "" {
+	// 		goto firstPart
+	// 	}
+	// 	if !strings.HasSuffix(p2, "/") {
+	// 		p2 += "/"
+	// 	}
+	// 	if !strings.HasPrefix(p1, p2) {
+	// 		return ""
+	// 	}
+	// 	p1 = strings.TrimPrefix(p1, p2)
+	// firstPart:
+	// 	p1 = strings.TrimPrefix(p1, "/")
+	// 	idx := strings.Index(p1, "/")
+	// 	if idx == -1 {
+	// 		return p1
+	// 	}
+	// 	return p1[:idx+1]
 }

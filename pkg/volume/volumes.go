@@ -56,7 +56,7 @@ func (vs *Volumes) Get(p string) (interfaces.Volume, error) {
 func (vs *Volumes) Remove(p string) error {
 	vol, ok := vs.volumes.Load(p)
 	if !ok {
-		return nil
+		return interfaces.ErrNotExisted
 	}
 	vs.volumes.Delete(p)
 	return vol.(*Volume).Remove()

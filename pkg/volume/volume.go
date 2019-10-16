@@ -218,8 +218,8 @@ func (v *Volume) Delete(path string) error {
 	return v.index.Delete(path)
 }
 
-func (v *Volume) List(p string, count int) ([]string, error) {
-	return v.index.ListN(p, count)
+func (v *Volume) List(p, leafFile string, count int) ([]string, error) {
+	return v.index.ListN(p, leafFile, count)
 }
 
 func (v *Volume) Stat(key string) (os.FileInfo, error) {

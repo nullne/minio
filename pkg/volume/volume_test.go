@@ -1,23 +1,16 @@
-package volume
+package volume_test
 
-// import (
-// 	"bytes"
-// 	"context"
-// 	"crypto/md5"
-// 	"crypto/rand"
-// 	"errors"
-// 	"fmt"
-// 	"io/ioutil"
-// 	mrand "math/rand"
-// 	"os"
-// 	"strings"
-// 	"sync"
-// 	"testing"
-// 	"time"
-//
-// 	"gopkg.in/bufio.v1"
-// )
-//
+import (
+	"bytes"
+	"context"
+	"io/ioutil"
+	"os"
+	"testing"
+
+	"github.com/minio/minio/pkg/volume"
+	"github.com/minio/minio/pkg/volume/index/rocksdb"
+)
+
 // func TestVolumeAndFileConcurrently(t *testing.T) {
 // 	dir, _ := ioutil.TempDir("/tmp", "volume_")
 // 	// fmt.Println(dir)
@@ -132,71 +125,73 @@ package volume
 // 	}
 // }
 //
-// func TestVolumeReadFile(t *testing.T) {
-// 	dir, _ := ioutil.TempDir("/tmp", "volume_")
-// 	// fmt.Println(dir)
-// 	defer os.RemoveAll(dir)
-//
-// 	v, err := NewVolume(context.Background(), dir)
-// 	if err != nil {
-// 		t.Error(err)
-// 		return
-// 	}
-// 	// defer v.Close()
-//
-// 	key := "key"
-// 	data := []byte("0123456789")
-// 	r := bufio.NewBuffer(data)
-// 	if err := v.WriteAll(key, int64(len(data)), r); err != nil {
-// 		t.Error(err)
-// 		return
-// 	}
-//
-// 	r = bufio.NewBuffer(data)
-// 	if err := v.WriteAll("another KEY", int64(len(data)), r); err != nil {
-// 		t.Error(err)
-// 		return
-// 	}
-//
-// 	data2, err := v.ReadAll(key)
-// 	if err != nil {
-// 		t.Error(err)
-// 	}
-// 	if !bytes.Equal(data, data2) {
-// 		t.Errorf("not equal")
-// 	}
-//
-// 	data3 := make([]byte, 5)
-// 	n, err := v.ReadFile(key, 1, data3)
-// 	if err != nil {
-// 		t.Error(err)
-// 	}
-// 	if n != 5 {
-// 		t.Errorf("not equal")
-// 	}
-// 	if !bytes.Equal(data[1:6], data3) {
-// 		t.Errorf("not equal")
-// 	}
-//
-// 	rr, err := v.ReadFileStream(key, 5, 6)
-// 	if err != nil {
-// 		t.Error(err)
-// 		return
-// 	}
-// 	data4, err := ioutil.ReadAll(rr)
-// 	if err != nil {
-// 		t.Error(err)
-// 	}
-//
-// 	if !bytes.Equal(data[5:], data4) {
-// 		t.Errorf("not equal")
-// 	}
-//
-// 	if err := v.Remove(); err != nil {
-// 		t.Error(err)
-// 	}
-// }
-//
+func TestVolumeReadFile(t *testing.T) {
+	dir, _ := ioutil.TempDir("/tmp", "volume_")
+	// fmt.Println(dir)
+	defer os.RemoveAll(dir)
+
+	idx, err := rocksdb.NewIndex(dir, volume.IndexOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	v, err := volume.NewVolume(context.Background(), dir, idx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer v.Close()
+
+	key := "key"
+	data := []byte("0123456789")
+	if err := v.WriteAll(key, data); err != nil {
+		t.Error(err)
+		return
+	}
+
+	if err := v.WriteAll("another KEY", data); err != nil {
+		t.Error(err)
+		return
+	}
+
+	data2, err := v.ReadAll(key)
+	if err != nil {
+		t.Error(err)
+	}
+	if !bytes.Equal(data, data2) {
+		t.Errorf("not equal")
+	}
+
+	data3 := make([]byte, 5)
+	n, err := v.ReadFile(key, 1, data3)
+	if err != nil {
+		t.Error(err)
+	}
+	if n != 5 {
+		t.Errorf("not equal")
+	}
+	if !bytes.Equal(data[1:6], data3) {
+		t.Errorf("not equal")
+	}
+
+	rr, err := v.ReadFileStream(key, 5, 6)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	data4, err := ioutil.ReadAll(rr)
+	if err != nil {
+		t.Error(err)
+	}
+
+	if !bytes.Equal(data[5:], data4) {
+		t.Errorf("not equal")
+	}
+
+	if err := v.Remove(); err != nil {
+		t.Error(err)
+	}
+}
+
 // func TestVolumeList(t *testing.T) {
 // 	dir, _ := ioutil.TempDir("/tmp", "volume_")
 // 	// fmt.Println(dir)
