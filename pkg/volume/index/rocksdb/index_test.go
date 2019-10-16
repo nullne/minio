@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/minio/minio/pkg/volume"
+	"github.com/minio/minio/pkg/volume/interfaces"
 )
 
 func setupRocksdb() (volume.Index, error) {
@@ -20,8 +21,11 @@ func TestListN(t *testing.T) {
 	defer vol.Remove()
 
 	for _, key := range []string{
+		"bar/",
 		"demo/part.1",
 		"demo/xl.json",
+		"foo/demo/part.1",
+		"foo/demo/xl.json",
 	} {
 		if err := vol.Set(key, []byte{}); err != nil {
 			t.Fatal(err)
@@ -35,7 +39,12 @@ func TestListN(t *testing.T) {
 		expectedOutput []string
 		expectedError  error
 	}{
-		{"", "xl.json", -1, []string{"demo"}, nil},
+		{"", "xl.json", -1, []string{"bar/", "demo", "foo/"}, nil},
+		{"", "", -1, []string{"bar/", "demo/", "foo/"}, nil},
+		{"", "", 2, []string{"bar/", "demo/"}, nil},
+		{"", "", 1, []string{"bar/"}, nil},
+		{"foo", "xl.json", -1, []string{"demo"}, nil},
+		{"notExist", "", 1, []string{}, interfaces.ErrNotExisted},
 	}
 
 	for i, c := range cases {

@@ -494,39 +494,15 @@ func (db *rocksDBIndex) ListN(keyPrefix, leaf string, count int) ([]string, erro
 	it := db.db.NewIterator(ro)
 	defer it.Close()
 
-	var entryMap map[string]struct{}
-	if count <= 0 {
-		entryMap = make(map[string]struct{})
-	} else {
-		entryMap = make(map[string]struct{}, count)
-	}
-
-	addToEntries := func(entry string) {
-		if entry == "" {
-			return
-		}
-		if _, ok := entryMap[entry]; ok {
-			return
-		}
-		if strings.HasSuffix(entry, "/") {
-			if _, ok := entryMap[strings.TrimRight(entry, "/")]; ok {
-				return
-			}
-		} else {
-			if _, ok := entryMap[entry+"/"]; ok {
-				entryMap[entry] = struct{}{}
-				delete(entryMap, entry+"/")
-				return
-			}
-		}
-		entryMap[entry] = struct{}{}
-		count--
+	var entries []string
+	if count > 0 {
+		entries = make([]string, 0, count)
 	}
 
 	it.Seek([]byte(keyPrefix))
 	// the directory not found
 	if !it.Valid() {
-		return nil, os.ErrNotExist
+		return nil, interfaces.ErrNotExisted
 	}
 
 	for count != 0 {
@@ -552,7 +528,9 @@ func (db *rocksDBIndex) ListN(keyPrefix, leaf string, count int) ([]string, erro
 				return nil, err
 			}
 		}
-		addToEntries(entry)
+
+		entries = append(entries, entry)
+		count--
 
 		key.Free()
 
@@ -569,10 +547,6 @@ func (db *rocksDBIndex) ListN(keyPrefix, leaf string, count int) ([]string, erro
 
 	if err := it.Err(); err != nil {
 		return nil, err
-	}
-	entries := make([]string, 0, len(entryMap))
-	for k, _ := range entryMap {
-		entries = append(entries, k)
 	}
 	return entries, nil
 }
