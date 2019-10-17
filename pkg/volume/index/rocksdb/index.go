@@ -1,11 +1,8 @@
-// list avalaible options here
 package rocksdb
 
 import (
 	"bytes"
-	"context"
 	"errors"
-	"math/rand"
 	"os"
 	"path"
 	"path/filepath"
@@ -14,7 +11,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"syscall"
-	"time"
 
 	"github.com/minio/minio/pkg/volume"
 	"github.com/minio/minio/pkg/volume/interfaces"
@@ -22,36 +18,12 @@ import (
 	"go.uber.org/multierr"
 )
 
-const (
-	xlJSONFile = ".json"
-)
-
-type rocksDBIndex struct {
-	db        *gorocksdb.DB
-	backupDir string
-
-	opts *gorocksdb.Options
-	wo   *gorocksdb.WriteOptions
-	ro   *gorocksdb.ReadOptions
-
-	closed uint32
-
-	wg *sync.WaitGroup
-}
-
-const (
-	backupStartTimeLayout string = "15:04:05"
-)
-
 var (
 	ErrRocksDBClosed = errors.New("rocksdb has been closed already")
 )
 
 type options struct {
-	root               string
-	backupRoot         string
-	backupInterval     string
-	backupStartBetween string // 02:00:00-04:00:00
+	root string
 
 	directRead   bool
 	bloomFilter  bool
@@ -60,26 +32,15 @@ type options struct {
 	rateLimiter  int //MB
 }
 
+// ROCKSDB_DIRECT_READ
+// ROCKSDB_BLOOM_FILTER
+// ROCKSDB_MAX_OPEN_FILES
+// ROCKSDB_BLOCK_CACHE
+// ROCKSDB_RATE_LIMITER
 func parseOptionsFromEnv() (opt options) {
 	getenv := func(p string) string {
 		s := os.Getenv(p)
 		return strings.TrimSpace(s)
-	}
-
-	if s := getenv("ROCKSDB_ROOT"); s != "" {
-		opt.root = s
-	}
-
-	if s := getenv("ROCKSDB_BACKUP_ROOT"); s != "" {
-		opt.backupRoot = s
-	}
-
-	if s := getenv("ROCKSDB_BACKUP_START_BETWEEN"); s != "" {
-		opt.backupStartBetween = s
-	}
-
-	if s := getenv("ROCKSDB_BACKUP_INTERVAL"); s != "" {
-		opt.backupInterval = s
 	}
 
 	if s := getenv("ROCKSDB_DIRECT_READ"); s == "on" {
@@ -113,78 +74,6 @@ func parseOptionsFromEnv() (opt options) {
 	return opt
 }
 
-func (opt *options) setDefaultIfEmpty() {
-	if opt.maxOpenFiles == 0 {
-		opt.maxOpenFiles = 1000
-	}
-}
-
-func RestoreFromBackup(backupPath, p string) error {
-	opt := parseOptionsFromEnv()
-	engine, err := gorocksdb.OpenBackupEngine(toRocksdbOptions(opt), path.Join(backupPath, volume.IndexBackupDir))
-	defer engine.Close()
-	if err != nil {
-		return err
-	}
-	p = path.Join(p, volume.IndexDir)
-	ro := gorocksdb.NewRestoreOptions()
-	return engine.RestoreDBFromLatestBackup(p, p, ro)
-}
-
-func parseObjectKey(key string) string {
-	if strings.HasSuffix(key, xlJSONFile) {
-		return strings.TrimSuffix(key, "/"+xlJSONFile)
-	}
-	if strings.HasSuffix(key, "/") {
-		return strings.TrimSuffix(key, "/")
-	}
-	return ""
-}
-
-func DumpObjects(p string) (chan string, chan error, error) {
-	p = path.Join(p, volume.IndexDir)
-	opt := parseOptionsFromEnv()
-	db, err := gorocksdb.OpenDbForReadOnly(toRocksdbOptions(opt), p, false)
-	if err != nil {
-		return nil, nil, err
-	}
-	ch := make(chan string)
-	ech := make(chan error, 1)
-	go func() {
-		defer db.Close()
-		defer close(ch)
-		defer close(ech)
-		ro := gorocksdb.NewDefaultReadOptions()
-		ro.SetFillCache(false)
-		defer ro.Destroy()
-		it := db.NewIterator(ro)
-		it.SeekToFirst()
-		defer it.Close()
-		for it = it; it.Valid(); it.Next() {
-			key := it.Key()
-			if k := parseObjectKey(string(key.Data())); k != "" {
-				ch <- k
-			}
-			key.Free()
-		}
-		if err := it.Err(); err != nil {
-			ech <- err
-		}
-	}()
-	return ch, ech, nil
-}
-
-func Check(p string) error {
-	p = path.Join(p, volume.IndexDir)
-	opt := parseOptionsFromEnv()
-	db, err := gorocksdb.OpenDb(toRocksdbOptions(opt), p)
-	if err != nil {
-		return err
-	}
-	db.Close()
-	return nil
-}
-
 func toRocksdbOptions(opt options) *gorocksdb.Options {
 	opt.setDefaultIfEmpty()
 	opts := gorocksdb.NewDefaultOptions()
@@ -212,14 +101,31 @@ func toRocksdbOptions(opt options) *gorocksdb.Options {
 	return opts
 }
 
+func (opt *options) setDefaultIfEmpty() {
+	if opt.maxOpenFiles == 0 {
+		opt.maxOpenFiles = 1000
+	}
+}
+
+type rocksDBIndex struct {
+	db        *gorocksdb.DB
+	backupDir string
+
+	opts *gorocksdb.Options
+	wo   *gorocksdb.WriteOptions
+	ro   *gorocksdb.ReadOptions
+
+	closed uint32
+	wg     sync.WaitGroup
+}
+
 func NewIndex(name string, options volume.IndexOptions) (volume.Index, error) {
 	p := filepath.Join(options.Root, name, volume.IndexDir)
 	if err := volume.MkdirIfNotExist(p); err != nil {
 		return nil, err
 	}
 
-	opt := parseOptionsFromEnv()
-	opts := toRocksdbOptions(opt)
+	opts := toRocksdbOptions(parseOptionsFromEnv())
 	db, err := gorocksdb.OpenDb(opts, p)
 	if err != nil {
 		return nil, err
@@ -228,120 +134,18 @@ func NewIndex(name string, options volume.IndexOptions) (volume.Index, error) {
 		db:   db,
 		wo:   gorocksdb.NewDefaultWriteOptions(),
 		ro:   gorocksdb.NewDefaultReadOptions(),
-		wg:   &sync.WaitGroup{},
 		opts: opts,
 	}
-
-	// // backup every interval
-	// if opt.BackupRoot != "" && opt.BackupInterval != "" {
-	// 	duration, err := time.ParseDuration(opt.BackupInterval)
-	// 	if err != nil {
-	// 		return nil, err
-	// 	}
-	//
-	// 	// start after time A which pick from time range randomly
-	// 	var startAfter time.Duration
-	// 	if ss := strings.Split(opt.BackupStartBetween, "-"); len(ss) == 2 {
-	// 		startAfter, err = randomPickFromTimeRange(ss[0], ss[1])
-	// 		if err != nil {
-	// 			return nil, err
-	// 		}
-	// 	}
-	// 	volume.backupDir = pathJoin(opt.BackupRoot, dir, volume.IndexBackupDir)
-	// 	go volume.backupEvery(volume.backupDir, duration, startAfter)
-	// }
 
 	return &idx, nil
 }
 
-func randomPickFromTimeRange(sStart, sEnd string) (time.Duration, error) {
-	start, err := time.Parse(backupStartTimeLayout, sStart)
-	if err != nil {
-		return 0, err
-	}
-
-	end, err := time.Parse(backupStartTimeLayout, sEnd)
-	if err != nil {
-		return 0, err
-	}
-	if start.After(end) {
-		return 0, errors.New("invalid backup start time range")
-	}
-	rand.Seed(int64(time.Now().Nanosecond()))
-	start = start.Add(time.Duration(rand.Int63n(end.Sub(start).Nanoseconds())))
-	now := time.Now()
-	y, m, d := now.Date()
-	start = time.Date(y, m, d, start.Hour(), start.Minute(), start.Second(), start.Nanosecond(), now.Location())
-	if start.Before(now) {
-		start = start.Add(24 * time.Hour)
-	}
-	return start.Sub(now), nil
-}
-
-// keep the trailing slash which indicates a directory
-// func (db rocksDBIndex) segment(key string) []string {
-// 	endWithSlash := strings.HasSuffix(key, "/")
-// 	key = strings.Trim(key, "/")
-// 	if key == "" {
-// 		return nil
-// 	}
-// 	ss := strings.Split(key, "/")
-// 	segments := make([]string, db.cacheLevel)
-// 	for i := 0; i < db.cacheLevel && i < len(ss); i++ {
-// 		if i != len(ss)-1 || endWithSlash {
-// 			segments[i] = ss[i] + "/"
-// 		}
-// 	}
-// 	return segments
-// }
-
-// func (db *rocksDBIndex) initDirectoryCache() {
-// 	init := func() error {
-// 		defer catchPanic()
-// 		defer db.wg.Done()
-// 		if db.closed {
-// 			return nil
-// 		}
-// 		ro := gorocksdb.NewDefaultReadOptions()
-// 		ro.SetFillCache(false)
-// 		defer ro.Destroy()
-// 		it := db.db.NewIterator(ro)
-// 		it.SeekToFirst()
-// 		defer it.Close()
-// 		for it = it; it.Valid(); it.Next() {
-// 			key := it.Key()
-// 			db.directory.put(db.segment(string(key.Data())))
-// 			key.Free()
-// 		}
-// 		if err := it.Err(); err != nil {
-// 			db.directoryStatus.Store(directoryStatusUnknown)
-// 			return err
-// 		}
-// 		db.directoryStatus.Store(directoryStatusWorking)
-// 		return nil
-// 	}
-//
-// 	initJob()
-// 	result := make(chan error, 1)
-// 	globalJobQueue <- job{
-// 		name:   fmt.Sprintf("init directory cache for rocksdb %s", db.db.Name()),
-// 		fn:     init,
-// 		result: result,
-// 		before: func() { db.wg.Add(1) },
-// 		expire: time.Now().Add(time.Hour * 24 * 365), // never expire
-// 	}
-// 	// may panic in rare case
-// 	<-result
-// }
-
 func (db *rocksDBIndex) Get(key string) ([]byte, error) {
+	db.wg.Add(1)
+	defer db.wg.Done()
 	if db.isClosed() {
 		return nil, interfaces.ErrDBClosed
 	}
-	// defer func(before time.Time) {
-	// 	DiskOperationDuration.With(prometheus.Labels{"operation_type": "RocksDB-Get"}).Observe(time.Since(before).Seconds())
-	// }(time.Now())
-	// key = pathJoin(key)
 	value, err := db.db.GetBytes(db.ro, []byte(key))
 	if err != nil {
 		return nil, err
@@ -349,49 +153,24 @@ func (db *rocksDBIndex) Get(key string) ([]byte, error) {
 	if value == nil {
 		return nil, interfaces.ErrKeyNotExisted
 	}
-
-	// fi = volume.NewFileInfo(key)
-	//
-	// if volume.DirectIndexSaving(fi.Name()) {
-	// 	fi.Set(value, uint32(len(value)))
-	// 	// fi.data = value
-	// 	// fi.size = uint32(len(value))
-	// 	// fi.modTime = time.Now() // mod time is omitted
-	// 	return
-	// }
-	// err = fi.UnmarshalBinary(value)
 	return value, nil
 }
 
 func (db *rocksDBIndex) Set(key string, data []byte) error {
+	db.wg.Add(1)
+	defer db.wg.Done()
 	if db.isClosed() {
 		return interfaces.ErrDBClosed
 	}
-	// defer func(before time.Time) {
-	// 	DiskOperationDuration.With(prometheus.Labels{"operation_type": "RocksDB-Set"}).Observe(time.Since(before).Seconds())
-	// }(time.Now())
-
-	// directory cache
-	// defer func() {
-	// 	if err != nil || db.directoryStatus.Load().(string) == directoryStatusUnknown || db.directory == nil {
-	// 		return
-	// 	}
-	// 	db.directory.put(db.segment(key))
-	// }()
-
-	// key = pathJoin(key)
 	return db.db.Put(db.wo, []byte(key), data)
 }
 
 func (db *rocksDBIndex) Delete(keyPrefix string) (err error) {
+	db.wg.Add(1)
+	defer db.wg.Done()
 	if db.isClosed() {
 		return interfaces.ErrDBClosed
 	}
-	// defer func(before time.Time) {
-	// 	DiskOperationDuration.With(prometheus.Labels{"operation_type": "RocksDB-Delete"}).Observe(time.Since(before).Seconds())
-	// }(time.Now())
-
-	// keyPrefix = pathJoin(keyPrefix)
 	ro := gorocksdb.NewDefaultReadOptions()
 	ro.SetFillCache(false)
 	defer ro.Destroy()
@@ -425,69 +204,14 @@ func (db *rocksDBIndex) Delete(keyPrefix string) (err error) {
 		if err := db.db.Delete(db.wo, key); err != nil {
 			return err
 		}
-		// delete from directory cache
-		// @TODO may be inconsistant if the directory has not been inited
-		// if db.directoryStatus.Load().(string) == directoryStatusWorking && db.directory != nil {
-		// 	db.directory.delete(db.segment(string(key)))
-		// }
 	}
 	return nil
 }
 
-// StatPath
-// func (db *rocksDBIndex) StatDir(key string) (fi volume.FileInfo, err error) {
-// 	if db.isClosed() {
-// 		return fi, volume.ErrDBClosed
-// 	}
-// 	// defer func(before time.Time) {
-// 	// 	DiskOperationDuration.With(prometheus.Labels{"operation_type": "RocksDB-StatDir"}).Observe(time.Since(before).Seconds())
-// 	// }(time.Now())
-// 	// key = pathJoin(key)
-// 	if !strings.HasSuffix(key, "/") {
-// 		key += "/"
-// 	}
-// 	ro := gorocksdb.NewDefaultReadOptions()
-// 	ro.SetFillCache(false)
-// 	defer ro.Destroy()
-// 	it := db.db.NewIterator(ro)
-// 	defer it.Close()
-// 	it.Seek([]byte(key))
-// 	if !it.Valid() {
-// 		return fi, interfaces.ErrKeyNotExisted
-// 	}
-// 	k := it.Key()
-// 	defer k.Free()
-// 	if !bytes.Equal(k.Data(), []byte(key)) {
-// 		return volume.NewDirInfo(key), nil
-// 	}
-//
-// 	v := it.Value()
-// 	defer v.Free()
-// 	fi = volume.NewFileInfo(key)
-// 	// fi.fileName = key
-// 	err = fi.UnmarshalBinary(v.Data())
-// 	return
-// }
-
-// count -1 means unlimited
-// listN list count entries under directory keyPrefix, not including itself
 func (db *rocksDBIndex) ListN(keyPrefix, leaf string, count int) ([]string, error) {
 	if db.isClosed() {
 		return nil, interfaces.ErrDBClosed
 	}
-	// defer func(before time.Time) {
-	// 	DiskOperationDuration.With(prometheus.Labels{"operation_type": "RocksDB-ListN"}).Observe(time.Since(before).Seconds())
-	// }(time.Now())
-
-	// keyPrefix = pathJoin(keyPrefix)
-
-	// list from directory cache
-	// if status := db.directoryStatus.Load().(string); status == directoryStatusWorking {
-	// 	if seg := db.segment(keyPrefix); len(seg) < db.cacheLevel && db.directory != nil {
-	// 		return db.directory.list(seg, count), nil
-	// 	}
-	// }
-
 	ro := gorocksdb.NewDefaultReadOptions()
 	ro.SetFillCache(false)
 	defer ro.Destroy()
@@ -500,8 +224,7 @@ func (db *rocksDBIndex) ListN(keyPrefix, leaf string, count int) ([]string, erro
 	}
 
 	it.Seek([]byte(keyPrefix))
-	// the directory not found
-	if !it.Valid() {
+	if !it.Valid() { // not found
 		return nil, interfaces.ErrNotExisted
 	}
 
@@ -551,75 +274,20 @@ func (db *rocksDBIndex) ListN(keyPrefix, leaf string, count int) ([]string, erro
 	return entries, nil
 }
 
-func (db *rocksDBIndex) ScanAll(ctx context.Context, filter func(s string) bool) (chan volume.FileInfo, chan error) {
-	ch := make(chan volume.FileInfo, 1000)
-	ech := make(chan error, 1)
-	go func(ctx context.Context) {
-		defer close(ch)
-		defer close(ech)
-
-		if db.isClosed() {
-			return
-		}
-		ro := gorocksdb.NewDefaultReadOptions()
-		ro.SetFillCache(false)
-		defer ro.Destroy()
-		it := db.db.NewIterator(ro)
-		defer it.Close()
-
-		it.SeekToFirst()
-		breaks := false
-
-		for it = it; it.Valid() && !breaks; it.Next() {
-			key := it.Key()
-			if filter(string(key.Data())) {
-				// var fi volume.FileInfo
-				// fi.fileName = string(key.Data())
-				fi := volume.NewFileInfo(string(key.Data()))
-				value := it.Value()
-				err := fi.UnmarshalBinary(value.Data())
-				if err != nil {
-					select {
-					case ech <- err:
-					case <-ctx.Done():
-						breaks = true
-					}
-				} else {
-					select {
-					case ch <- fi:
-					case <-ctx.Done():
-						breaks = true
-					}
-				}
-				value.Free()
-			}
-			key.Free()
-		}
-		if err := it.Err(); err != nil {
-			ech <- err
-			return
-		}
-	}(ctx)
-	return ch, ech
-}
-
 func (db *rocksDBIndex) Close() error {
 	if db.isClosed() {
 		return nil
 	}
+	atomic.StoreUint32(&(db.closed), 1)
 	db.wg.Wait()
 	db.db.Close()
 	db.ro.Destroy()
 	db.wo.Destroy()
 	db.opts.Destroy()
-	atomic.StoreUint32(&(db.closed), 1)
 	return nil
 }
 
 func (db *rocksDBIndex) Remove() (err error) {
-	// defer func(before time.Time) {
-	// 	DiskOperationDuration.With(prometheus.Labels{"operation_type": "Remove"}).Observe(time.Since(before).Seconds())
-	// }(time.Now())
 	name := db.db.Name()
 	err = multierr.Append(err, db.Close())
 
@@ -633,39 +301,6 @@ func (db *rocksDBIndex) Remove() (err error) {
 		err = multierr.Append(err, os.RemoveAll(path.Dir(strings.TrimRight(db.backupDir, "/"))))
 	}
 	return err
-}
-
-func (db *rocksDBIndex) backupFn(p string) func() error {
-	return func() error {
-		defer db.wg.Done()
-		if db.isClosed() {
-			return nil
-		}
-		engine, err := gorocksdb.OpenBackupEngine(db.opts, p)
-		if err != nil {
-			return err
-		}
-		defer engine.Close()
-		return engine.CreateNewBackup(db.db)
-	}
-}
-
-func (db *rocksDBIndex) backupEvery(p string, interval, startAfter time.Duration) {
-	// initJob()
-	// time.Sleep(startAfter)
-	// for _ = range time.Tick(interval) {
-	// 	if db.isClosed() {
-	// 		return
-	// 	}
-	// 	result := make(chan error, 1)
-	// 	globalJobQueue <- job{
-	// 		name:   fmt.Sprintf("backup rocksdb %s to %s", db.db.Name(), p),
-	// 		before: func() { db.wg.Add(1) },
-	// 		fn:     db.backupFn(p),
-	// 		result: result,
-	// 		expire: time.Now().Add(interval),
-	// 	}
-	// }
 }
 
 func (db *rocksDBIndex) isClosed() bool {

@@ -13,6 +13,7 @@ func setupRocksdb() (volume.Index, error) {
 	dir, _ := ioutil.TempDir("/tmp", "volume_")
 	return NewIndex(dir, volume.IndexOptions{})
 }
+
 func TestDelete(t *testing.T) {
 	vol, err := setupRocksdb()
 	if err != nil {
@@ -38,6 +39,7 @@ func TestDelete(t *testing.T) {
 	}{
 		{"demo", nil},
 		{"foo", syscall.ENOTEMPTY},
+		{"notExist", interfaces.ErrNotExisted},
 	}
 
 	for i, c := range cases {
@@ -97,31 +99,3 @@ func TestListN(t *testing.T) {
 		}
 	}
 }
-
-// func TestRandomPickFromTimeRange(t *testing.T) {
-// 	cases := []struct {
-// 		p   string
-// 		err error
-// 	}{
-// 		{"15:30:00-16:30:00", nil},
-// 		{"15:30:00-16:30:00", nil},
-// 		{"15:30:00-16:30:00", nil},
-// 		{"15:30:00-16:30:00", nil},
-// 		{"15:30:00-16:30:00", nil},
-// 		{"15:30:00-16:30:00", nil},
-// 		{"15:30:00-16:30:00", nil},
-// 		{"15:30:00-16:30:00", nil},
-// 		{"15:30:00-16:30:00", nil},
-// 		{"15:30:00-16:30:00", nil},
-// 	}
-//
-// 	for _, c := range cases {
-// 		ss := strings.Split(c.p, "-")
-// 		d, err := randomPickFromTimeRange(ss[0], ss[1])
-// 		if err != c.err {
-// 			t.Errorf("range: %s, wanna: %v, got: %v", c.p, c.err, err)
-// 		}
-// 		// check the result manully
-// 		fmt.Println(d)
-// 	}
-// }
