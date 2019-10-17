@@ -3,6 +3,8 @@ package volume_test
 import (
 	"bytes"
 	"context"
+	"flag"
+	"fmt"
 	"io/ioutil"
 	"os"
 	"testing"
@@ -10,6 +12,22 @@ import (
 	"github.com/minio/minio/pkg/volume"
 	"github.com/minio/minio/pkg/volume/index/rocksdb"
 )
+
+var (
+	fIndex = flag.String("index", "", "pick up which index to test file volume, available values is rocksdb")
+)
+
+var (
+	gIndexFn func()
+)
+
+func TestMain(t *testing.M) {
+	flag.Parse()
+	if *fIndex == "" {
+		return
+	}
+	fmt.Println(*fIndex)
+}
 
 // func TestVolumeAndFileConcurrently(t *testing.T) {
 // 	dir, _ := ioutil.TempDir("/tmp", "volume_")
