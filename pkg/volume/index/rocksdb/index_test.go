@@ -2,6 +2,7 @@ package rocksdb
 
 import (
 	"io/ioutil"
+	"syscall"
 	"testing"
 
 	"github.com/minio/minio/pkg/volume"
@@ -11,6 +12,40 @@ import (
 func setupRocksdb() (volume.Index, error) {
 	dir, _ := ioutil.TempDir("/tmp", "volume_")
 	return NewIndex(dir, volume.IndexOptions{})
+}
+func TestDelete(t *testing.T) {
+	vol, err := setupRocksdb()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer vol.Remove()
+
+	for _, key := range []string{
+		"bar/",
+		"demo/part.1",
+		"demo/xl.json",
+		"foo/demo/part.1",
+		"foo/demo/xl.json",
+	} {
+		if err := vol.Set(key, []byte{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	cases := []struct {
+		key           string
+		expectedError error
+	}{
+		{"demo", nil},
+		{"foo", syscall.ENOTEMPTY},
+	}
+
+	for i, c := range cases {
+		err = vol.Delete(c.key)
+		if err != c.expectedError {
+			t.Errorf("case %d: expect error %v, got %v", i, c.expectedError, err)
+		}
+	}
 }
 
 func TestListN(t *testing.T) {

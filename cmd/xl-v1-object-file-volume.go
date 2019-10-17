@@ -358,7 +358,7 @@ func cleanupObjectsBulkFromFileVolume(ctx context.Context, storage StorageAPI, v
 
 	// Map files deletion errors to the correspondent objects
 	for i := range dErrs {
-		if dErrs[i] != nil {
+		if dErrs[i] != nil && dErrs[i] != errFileNotFound {
 			if errs[i] != nil {
 				errs[i] = dErrs[i]
 			}
