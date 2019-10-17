@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"os"
 	"strings"
 
 	"github.com/minio/minio/pkg/volume"
@@ -19,7 +20,11 @@ func NewVolume(ctx context.Context, dir string) (interfaces.Volume, error) {
 		return nil, err
 	}
 
-	idx, err := rocksdb.NewIndex(dir, volume.IndexOptions{})
+	options := volume.IndexOptions{}
+	if os.Getenv("MINIO_FILE_VOLUME_INDEX_ROOT"); s != "" {
+		options.Root = s
+	}
+	idx, err := rocksdb.NewIndex(dir, options)
 	if err != nil {
 		return nil, err
 	}

@@ -20,9 +20,8 @@ import (
 )
 
 const (
-	IndexDir       = "index"
-	DataDir        = "data"
-	IndexBackupDir = "backup"
+	IndexDir = "index"
+	DataDir  = "data"
 
 	slashSeperator = "/"
 )
@@ -32,7 +31,6 @@ var (
 )
 
 type Volume struct {
-	//data dir, index dir, backup dir
 	dir   string
 	index Index
 	files *files
@@ -246,7 +244,6 @@ func (v *Volume) Mkdir(p string) error {
 }
 
 // remove the volume itself including data and index
-// remove the backup dir also
 func (v *Volume) Remove() (err error) {
 	err = multierr.Append(err, v.index.Remove())
 	err = multierr.Append(err, v.files.remove())

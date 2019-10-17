@@ -32,40 +32,40 @@ type options struct {
 	rateLimiter  int //MB
 }
 
-// ROCKSDB_DIRECT_READ
-// ROCKSDB_BLOOM_FILTER
-// ROCKSDB_MAX_OPEN_FILES
-// ROCKSDB_BLOCK_CACHE
-// ROCKSDB_RATE_LIMITER
+// MINIO_ROCKSDB_DIRECT_READ
+// MINIO_ROCKSDB_BLOOM_FILTER
+// MINIO_ROCKSDB_MAX_OPEN_FILES
+// MINIO_ROCKSDB_BLOCK_CACHE
+// MINIO_ROCKSDB_RATE_LIMITER
 func parseOptionsFromEnv() (opt options) {
 	getenv := func(p string) string {
 		s := os.Getenv(p)
 		return strings.TrimSpace(s)
 	}
 
-	if s := getenv("ROCKSDB_DIRECT_READ"); s == "on" {
+	if s := getenv("MINIO_ROCKSDB_DIRECT_READ"); s == "on" {
 		opt.directRead = true
 	}
 
-	if s := getenv("ROCKSDB_BLOOM_FILTER"); s == "on" {
+	if s := getenv("MINIO_ROCKSDB_BLOOM_FILTER"); s == "on" {
 		opt.bloomFilter = true
 	}
 
-	if s := getenv("ROCKSDB_MAX_OPEN_FILES"); s != "" {
+	if s := getenv("MINIO_ROCKSDB_MAX_OPEN_FILES"); s != "" {
 		i, err := strconv.Atoi(s)
 		if err == nil {
 			opt.maxOpenFiles = i
 		}
 	}
 
-	if s := getenv("ROCKSDB_BLOCK_CACHE"); s != "" {
+	if s := getenv("MINIO_ROCKSDB_BLOCK_CACHE"); s != "" {
 		i, err := strconv.Atoi(s)
 		if err == nil {
 			opt.blockCache = i
 		}
 	}
 
-	if s := getenv("ROCKSDB_RATE_LIMITER"); s != "" {
+	if s := getenv("MINIO_ROCKSDB_RATE_LIMITER"); s != "" {
 		i, err := strconv.Atoi(s)
 		if err == nil {
 			opt.rateLimiter = i
@@ -108,8 +108,7 @@ func (opt *options) setDefaultIfEmpty() {
 }
 
 type rocksDBIndex struct {
-	db        *gorocksdb.DB
-	backupDir string
+	db *gorocksdb.DB
 
 	opts *gorocksdb.Options
 	wo   *gorocksdb.WriteOptions
@@ -297,9 +296,6 @@ func (db *rocksDBIndex) Remove() (err error) {
 
 	err = multierr.Append(err, os.RemoveAll(path.Dir(strings.TrimRight(name, "/"))))
 
-	if db.backupDir != "" {
-		err = multierr.Append(err, os.RemoveAll(path.Dir(strings.TrimRight(db.backupDir, "/"))))
-	}
 	return err
 }
 

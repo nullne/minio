@@ -11,8 +11,7 @@ var (
 )
 
 type IndexOptions struct {
-	Root       string
-	BackupRoot string
+	Root string
 }
 
 type Index interface {
