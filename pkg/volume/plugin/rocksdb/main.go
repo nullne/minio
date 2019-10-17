@@ -21,7 +21,7 @@ func NewVolume(ctx context.Context, dir string) (interfaces.Volume, error) {
 	}
 
 	options := volume.IndexOptions{}
-	if os.Getenv("MINIO_FILE_VOLUME_INDEX_ROOT"); s != "" {
+	if s := os.Getenv("MINIO_FILE_VOLUME_INDEX_ROOT"); s != "" {
 		options.Root = s
 	}
 	idx, err := rocksdb.NewIndex(dir, options)
