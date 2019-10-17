@@ -23,9 +23,6 @@ type Volume interface {
 	List(p, leafFile string, count int) ([]string, error)
 	Stat(key string) (os.FileInfo, error)
 	Mkdir(p string) error
-	Maintain(ctx context.Context) error
-	DumpListToMaintain(ctx context.Context, rate float64) error
-	CleanMaintain() error
 	Remove() error
 	Close() error
 }

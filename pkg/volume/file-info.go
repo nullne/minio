@@ -70,9 +70,8 @@ func (f FileInfo) Size() int64 {
 func (f FileInfo) Mode() os.FileMode {
 	if f.IsDir() {
 		return 0777
-	} else {
-		return 0666
 	}
+	return 0666
 }
 
 func (f FileInfo) ModTime() time.Time {

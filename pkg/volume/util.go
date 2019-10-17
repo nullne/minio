@@ -2,6 +2,7 @@ package volume
 
 import (
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -46,4 +47,19 @@ func trimRightSlash(s string) string {
 
 func isDirectory(s string) bool {
 	return strings.HasSuffix(s, slashSeperator)
+}
+
+// PathJoin - like path.Join() but retains trailing "/" of the last element
+func PathJoin(elem ...string) string {
+	trailingSlash := ""
+	if len(elem) > 0 {
+		if strings.HasSuffix(elem[len(elem)-1], slashSeperator) {
+			trailingSlash = slashSeperator
+		}
+	}
+	ps := path.Join(elem...)
+	if ps == slashSeperator {
+		return ps
+	}
+	return ps + trailingSlash
 }

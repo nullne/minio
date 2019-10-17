@@ -5,19 +5,14 @@
 package volume
 
 import (
-	"bufio"
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
 	"path"
-	"sort"
-	"strconv"
 	"strings"
 
-	"github.com/minio/minio/cmd/logger"
 	"github.com/minio/minio/pkg/volume/interfaces"
 	"go.uber.org/multierr"
 
@@ -25,23 +20,15 @@ import (
 )
 
 const (
-	xlJSONFile = "xl.json"
-
 	IndexDir       = "index"
 	DataDir        = "data"
 	IndexBackupDir = "backup"
-	MaintenanceDir = "maintenance"
-
-	listFileSuffix          = ".list"
-	completedListFileSuffix = ".completed"
-	noNeedListFileSuffix    = ".no-need"
 
 	slashSeperator = "/"
 )
 
 var (
-	ErrUnderMaintenance = errors.New("there are other ongoing maintenance")
-	ErrInvalidArgument  = errors.New("invalid argument specified")
+	ErrInvalidArgument = errors.New("invalid argument specified")
 )
 
 type Volume struct {
@@ -206,7 +193,7 @@ func (v *Volume) WriteAll(key string, bs []byte) error {
 	return v.index.Set(key, fi.MarshalBinary())
 }
 
-// delete /data/bucket/object will delete all following keys
+// Delete path /data/bucket/object will delete all following keys
 // /data1/bucket/object/xl.json
 // /data1/bucket/object/part.1
 // /data1/bucket/object/part.2
@@ -258,203 +245,6 @@ func (v *Volume) Mkdir(p string) error {
 	return v.index.Set(p, nfi.MarshalBinary())
 }
 
-func (v *Volume) Maintain(ctx context.Context) error {
-	dir := path.Join(v.dir, MaintenanceDir)
-	fis, err := ioutil.ReadDir(dir)
-	if err != nil {
-		return err
-	}
-	for _, fi := range fis {
-		if !strings.HasSuffix(fi.Name(), listFileSuffix) {
-			continue
-		}
-		idx := strings.Index(fi.Name(), ".")
-		if idx == -1 {
-			return errors.New("cannot parse index")
-		}
-
-		id, err := strconv.Atoi(fi.Name()[:idx])
-		if err != nil {
-			return err
-		}
-		volumeID := uint32(id)
-		oldFile, err := v.files.getFileToRead(volumeID)
-		if err != nil {
-			return err
-		}
-		f, err := os.Open(path.Join(dir, fi.Name()))
-		if err != nil {
-			return err
-		}
-
-		var items maintainItems
-		scanner := bufio.NewScanner(f)
-		for scanner.Scan() {
-			ss := strings.Split(scanner.Text(), ",")
-			if len(ss) != 2 {
-				continue
-			}
-			i, err := strconv.Atoi(ss[1])
-			if err != nil {
-				return err
-			}
-			items = append(items, maintainItem{
-				key:  ss[0],
-				size: i,
-			})
-		}
-		if err := scanner.Err(); err != nil {
-			return err
-		}
-		// it's faster to read in sequence rather than in random
-		sort.Sort(items)
-		for _, item := range items {
-			key := item.key
-			data, err := v.index.Get(key)
-			if err != nil {
-				return err
-			}
-			nfi, err := UnmarshalFileInfo(key, data)
-			if err != nil {
-				return err
-			}
-
-			// wrote to the same file after dumpping
-			if nfi.volumeID != volumeID {
-				continue
-			}
-			bs := make([]byte, nfi.size)
-			if _, err := oldFile.read(bs, int64(nfi.offset)); err != nil {
-				return err
-			}
-			nnfi, err := v.files.write(bs)
-			if err != nil {
-				return err
-			}
-			if err := v.index.Set(key, nnfi.MarshalBinary()); err != nil {
-				return err
-			}
-		}
-
-		if err := v.files.deleteFile(volumeID); err != nil {
-			return err
-		}
-		// if err := os.Remove(path.Join(dir, fi.Name())); err != nil {
-		// 	return err
-		// }
-		oldPath := path.Join(dir, fi.Name())
-		if err := os.Rename(oldPath, oldPath+completedListFileSuffix); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func (v *Volume) DumpListToMaintain(ctx context.Context, rate float64) error {
-	if finished, err := v.isDumpingFinished(); err != nil {
-		return err
-	} else if finished {
-		return nil
-	}
-	dir := path.Join(v.dir, MaintenanceDir)
-	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		if err := os.Mkdir(dir, 0777); err != nil {
-			return err
-		}
-	} else if err != nil {
-		return err
-	}
-
-	fids := v.files.readOnlyFiles()
-	readOnlyFIDs := make(map[uint32]struct{})
-	for _, fid := range fids {
-		readOnlyFIDs[uint32(fid)] = struct{}{}
-	}
-	ch, ech := v.index.ScanAll(ctx, fileVolumeStoring)
-	files := make(map[uint32]*os.File)
-	sizes := make(map[uint32]int64)
-
-	for e := range ch {
-		if e.IsDir() || directIndexStoring(e.name) {
-			continue
-		}
-		if _, ok := readOnlyFIDs[e.volumeID]; !ok {
-			continue
-		}
-		if _, ok := files[e.volumeID]; !ok {
-			file, err := os.OpenFile(path.Join(dir, fmt.Sprintf("%d%s", e.volumeID, listFileSuffix)), os.O_CREATE|os.O_RDWR|os.O_APPEND, 0644)
-			if err != nil {
-				return err
-			}
-			defer file.Close()
-			files[e.volumeID] = file
-		}
-		if _, err := fmt.Fprintf(files[e.volumeID], "%s,%d\n", e.name, e.offset); err != nil {
-			return err
-		}
-		sizes[e.volumeID] += e.Size()
-	}
-	for err := range ech {
-		if err != nil {
-			return err
-		}
-	}
-
-	// renmae no-need compacting list
-	for vid, size := range sizes {
-		if float64(size)/float64(MaxFileSize) < rate {
-			continue
-		}
-		oldPath := path.Join(dir, fmt.Sprintf("%d%s", vid, listFileSuffix))
-		if err := os.Rename(oldPath, oldPath+noNeedListFileSuffix); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (v *Volume) CleanMaintain() error {
-	dir := path.Join(v.dir, MaintenanceDir)
-	return os.RemoveAll(dir)
-}
-
-// if not finished, clean the remaining files
-func (v *Volume) isDumpingFinished() (bool, error) {
-	dir := path.Join(v.dir, MaintenanceDir)
-	f, err := os.Open(dir)
-	if os.IsNotExist(err) {
-		return false, nil
-	} else if err != nil {
-		return false, err
-	}
-	defer f.Close()
-	dirs, err := f.Readdirnames(-1)
-	if err != nil {
-		return false, err
-	}
-	var dumped, completed int
-	for _, d := range dirs {
-		if strings.HasSuffix(d, listFileSuffix) {
-			dumped += 1
-		} else if strings.HasSuffix(d, completedListFileSuffix) {
-			dumped += 1
-			completed += 1
-		} else if strings.HasSuffix(d, noNeedListFileSuffix) {
-			dumped += 1
-			completed += 1
-		}
-	}
-	if completed == 0 {
-		// dumpling failed most likely, remove the remaining file
-		if err := os.RemoveAll(dir); err != nil {
-			return false, err
-		}
-		return false, nil
-	}
-	return true, nil
-}
-
 // remove the volume itself including data and index
 // remove the backup dir also
 func (v *Volume) Remove() (err error) {
@@ -468,48 +258,4 @@ func (v *Volume) Close() (err error) {
 	err = multierr.Append(err, v.index.Close())
 	err = multierr.Append(err, v.files.close())
 	return
-}
-
-func PathJoin(elem ...string) string {
-	return pathJoin(elem...)
-}
-
-// pathJoin - like path.Join() but retains trailing "/" of the last element
-func pathJoin(elem ...string) string {
-	trailingSlash := ""
-	if len(elem) > 0 {
-		if strings.HasSuffix(elem[len(elem)-1], "/") {
-			trailingSlash = "/"
-		}
-	}
-	ps := path.Join(elem...)
-	if ps == "/" {
-		return ps
-	}
-	return ps + trailingSlash
-}
-
-func catchPanic() {
-	if err := recover(); err != nil {
-		logger.Info("catch panic: %+v", err)
-	}
-}
-
-type maintainItem struct {
-	size int
-	key  string
-}
-
-type maintainItems []maintainItem
-
-func (s maintainItems) Len() int {
-	return len(s)
-}
-
-func (s maintainItems) Swap(i, j int) {
-	s[i], s[j] = s[j], s[i]
-}
-
-func (s maintainItems) Less(i, j int) bool {
-	return s[i].size < s[i].size
 }

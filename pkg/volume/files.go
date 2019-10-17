@@ -39,16 +39,16 @@ type files struct {
 	flock           fileLock
 }
 
-func (f *files) setCreateFileError(e error) {
-	f.createFileLock.Lock()
-	defer f.createFileLock.Unlock()
-	f.createFileError = e
+func (fs *files) setCreateFileError(e error) {
+	fs.createFileLock.Lock()
+	defer fs.createFileLock.Unlock()
+	fs.createFileError = e
 }
 
-func (f *files) getCreateFileError() error {
-	f.createFileLock.RLock()
-	defer f.createFileLock.RUnlock()
-	return f.createFileError
+func (fs *files) getCreateFileError() error {
+	fs.createFileLock.RLock()
+	defer fs.createFileLock.RUnlock()
+	return fs.createFileError
 }
 
 func newFiles(ctx context.Context, dir string) (*files, error) {
@@ -85,21 +85,21 @@ func newFiles(ctx context.Context, dir string) (*files, error) {
 	return &fs, nil
 }
 
-func (fis *files) loadFiles() (err error) {
-	fs, err := loadFiles(fis.dir)
+func (fs *files) loadFiles() (err error) {
+	efs, err := loadFiles(fs.dir)
 	if err != nil {
 		return err
 	}
 	defer func() {
 		if err != nil {
-			for _, f := range fs {
+			for _, f := range efs {
 				f.close()
 			}
 		}
 	}()
 
-	files := make([]*file, len(fs))
-	for i, f := range fs {
+	files := make([]*file, len(efs))
+	for i, f := range efs {
 		s := strings.TrimRight(path.Base(f.path), dataFileSuffix)
 		id, err := strconv.Atoi(s)
 		if err != nil {
@@ -110,9 +110,9 @@ func (fis *files) loadFiles() (err error) {
 			copy(nf, files)
 			files = nf
 		}
-		files[id] = fs[i]
+		files[id] = efs[i]
 	}
-	fis.files.Store(files)
+	fs.files.Store(files)
 	return nil
 }
 
