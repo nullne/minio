@@ -219,15 +219,6 @@ func TestReadDir(t *testing.T) {
 	}
 }
 
-func TestFoo(t *testing.T) {
-	es, err := readDirN("/tmp/foo", -1)
-	if err != nil {
-		panic(err)
-	}
-	fmt.Println(es)
-
-}
-
 func TestReadDirN(t *testing.T) {
 	testCases := []struct {
 		numFiles    int

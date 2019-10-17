@@ -42,18 +42,6 @@ func NewShortFileInfo(name string) FileInfo {
 	return fi
 }
 
-// func NewDemoFileInfo(size int) FileInfo {
-// 	data := make([]byte, size)
-// 	rand.Read(data)
-// 	return FileInfo{
-// 		data: data,
-// 	}
-// }
-//
-// func (f FileInfo) String() string {
-// 	return fmt.Sprintf("%s at volume %v, offset %v, size %v", f.name, f.volumeID, f.offset, f.size)
-// }
-
 // trim the right slash if possible
 func (f FileInfo) Name() string {
 	if f.name == slashSeperator {
@@ -134,8 +122,3 @@ func UnmarshalFileInfo(key string, data []byte) (FileInfo, error) {
 	err := fi.UnmarshalBinary(data)
 	return fi, err
 }
-
-// func (fi *FileInfo) Set(data []byte, size uint32) {
-// 	fi.data = data
-// 	fi.size = size
-// }

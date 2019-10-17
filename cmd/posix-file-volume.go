@@ -10,7 +10,6 @@ import (
 	"plugin"
 
 	"github.com/minio/minio/pkg/volume/interfaces"
-	"gopkg.in/bufio.v1"
 )
 
 func initGlobalFileVolumes() (interfaces.Volumes, error) {
@@ -71,9 +70,6 @@ func (s *posix) statDirFromFileVolume(volume, path string) (vi VolInfo, err erro
 	if err != nil {
 		return vi, err
 	}
-	// @TODO return which error
-	// if !fi.IsDir() {
-	// }
 	return VolInfo{
 		Name:    fi.Name(),
 		Created: fi.ModTime(),
@@ -135,7 +131,8 @@ func (s *posix) readFileFromFileVolume(volume, path string, offset int64, buffer
 	if err != nil {
 		return 0, err
 	}
-	r := bufio.NewBuffer(bs)
+
+	r := bytes.NewBuffer(bs)
 
 	bufp := s.pool.Get().(*[]byte)
 	defer s.pool.Put(bufp)
@@ -258,7 +255,6 @@ func (s *posix) deleteFromFileVolume(volume, path string) (err error) {
 	return vol.Delete(path)
 }
 
-// @TODO should implement other type of rename
 func (s *posix) renameFileFromFileVolume(srcVolume, srcPath, dstVolume, dstPath string) (err error) {
 	defer func() {
 		err = convertError(err, false)

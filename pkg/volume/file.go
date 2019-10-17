@@ -26,7 +26,7 @@ type file struct {
 	data *os.File
 	lock sync.RWMutex
 	wg   sync.WaitGroup
-	// means not writable
+
 	readOnly bool
 	directIO bool
 
@@ -164,9 +164,6 @@ func (f *file) setReadOnly() {
 func (f *file) read(buffer []byte, offset int64) (int64, error) {
 	f.wg.Add(1)
 	defer f.wg.Done()
-	// defer func(before time.Time) {
-	// 	DiskOperationDuration.With(prometheus.Labels{"operation_type": "fileVolume-read"}).Observe(time.Since(before).Seconds())
-	// }(time.Now())
 	if v := atomic.LoadUint32(&f.isClosed); v == 1 {
 		return 0, errFileClosing
 	}
@@ -187,9 +184,6 @@ func (f *file) read(buffer []byte, offset int64) (int64, error) {
 func (f *file) write(data []byte) (int64, error) {
 	f.wg.Add(1)
 	defer f.wg.Done()
-	// defer func(before time.Time) {
-	// 	DiskOperationDuration.With(prometheus.Labels{"operation_type": "fileVolume-write"}).Observe(time.Since(before).Seconds())
-	// }(time.Now())
 	if v := atomic.LoadUint32(&f.isClosed); v == 1 {
 		return 0, errFileClosing
 	}

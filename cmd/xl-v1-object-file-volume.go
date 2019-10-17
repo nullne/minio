@@ -13,8 +13,6 @@ import (
 func (xl xlObjects) putObjectViaFileVolume(ctx context.Context, bucket string, object string, r *PutObjReader, opts ObjectOptions) (objInfo ObjectInfo, err error) {
 	data := r.Reader
 
-	// uniqueID := mustGetUUID()
-	// tempObj := uniqueID
 	// No metadata is set, allocate a new one.
 	if opts.UserDefined == nil {
 		opts.UserDefined = make(map[string]string)
@@ -36,11 +34,6 @@ func (xl xlObjects) putObjectViaFileVolume(ctx context.Context, bucket string, o
 		xl.deleteObject(ctx, bucket, object, writeQuorum, hasSuffix(object, SlashSeparator))
 	}()
 
-	// Delete temporary object in the event of failure.
-	// If PutObject succeeded there would be no temporary
-	// object to delete.
-	// defer xl.deleteObject(ctx, minioMetaTmpBucket, tempObj, writeQuorum, false)
-
 	// This is a special case with size as '0' and object ends with
 	// a slash separator, we treat it like a valid operation and
 	// return success.
@@ -56,12 +49,6 @@ func (xl xlObjects) putObjectViaFileVolume(ctx context.Context, bucket string, o
 			undo = true
 			return ObjectInfo{}, toObjectErr(err, bucket, object)
 		}
-
-		// Rename the successfully written temporary object to final location. Ignore errFileAccessDenied
-		// error because it means that the target object dir exists and we want to be close to S3 specification.
-		// if _, err = rename(ctx, xl.getDisks(), minioMetaTmpBucket, tempObj, bucket, object, true, writeQuorum, []error{errFileAccessDenied}); err != nil {
-		// 	return ObjectInfo{}, toObjectErr(err, bucket, object)
-		// }
 
 		return dirObjectInfo(bucket, object, data.Size(), opts.UserDefined), nil
 	}
@@ -87,20 +74,6 @@ func (xl xlObjects) putObjectViaFileVolume(ctx context.Context, bucket string, o
 		if err := xl.deleteObject(ctx, bucket, object, writeQuorum, hasSuffix(object, SlashSeparator)); err != nil {
 			return ObjectInfo{}, toObjectErr(err, bucket, object)
 		}
-
-		// // Rename if an object already exists to temporary location.
-		// newUniqueID := mustGetUUID()
-		//
-		// // Delete successfully renamed object.
-		// defer xl.deleteObject(ctx, minioMetaTmpBucket, newUniqueID, writeQuorum, false)
-		//
-		// // NOTE: Do not use online disks slice here: the reason is that existing object should be purged
-		// // regardless of `xl.json` status and rolled back in case of errors. Also allow renaming the
-		// // existing object if it is not present in quorum disks so users can overwrite stale objects.
-		// _, err = rename(ctx, xl.getDisks(), bucket, object, minioMetaTmpBucket, newUniqueID, true, writeQuorum, []error{errFileNotFound})
-		// if err != nil {
-		// 	return ObjectInfo{}, toObjectErr(err, bucket, object)
-		// }
 	}
 
 	// Initialize parts metadata
@@ -198,11 +171,6 @@ func (xl xlObjects) putObjectViaFileVolume(ctx context.Context, bucket string, o
 		return ObjectInfo{}, toObjectErr(err, bucket, object)
 	}
 
-	// Rename the successfully written temporary object to final location.
-	// if _, err = rename(ctx, onlineDisks, minioMetaTmpBucket, tempObj, bucket, object, true, writeQuorum, nil); err != nil {
-	// 	return ObjectInfo{}, toObjectErr(err, bucket, object)
-	// }
-
 	// Object info is the same in all disks, so we can pick the first meta
 	// of the first disk
 	xlMeta = partsMetadata[0]
@@ -223,29 +191,6 @@ func (xl xlObjects) putObjectViaFileVolume(ctx context.Context, bucket string, o
 }
 
 func (xl xlObjects) deleteObjectViaFileVolume(ctx context.Context, bucket, object string, writeQuorum int, isDir bool) error {
-	// var disks []StorageAPI
-	// var err error
-
-	// tmpObj := mustGetUUID()
-	// if bucket == minioMetaTmpBucket {
-	// 	tmpObj = object
-	// 	disks = xl.getDisks()
-	// } else {
-	// 	// Rename the current object while requiring write quorum, but also consider
-	// 	// that a non found object in a given disk as a success since it already
-	// 	// confirms that the object doesn't have a part in that disk (already removed)
-	// 	if isDir {
-	// 		disks, err = rename(ctx, xl.getDisks(), bucket, object, minioMetaTmpBucket, tmpObj, true, writeQuorum,
-	// 			[]error{errFileNotFound, errFileAccessDenied})
-	// 	} else {
-	// 		disks, err = rename(ctx, xl.getDisks(), bucket, object, minioMetaTmpBucket, tmpObj, true, writeQuorum,
-	// 			[]error{errFileNotFound})
-	// 	}
-	// 	if err != nil {
-	// 		return toObjectErr(err, bucket, object)
-	// 	}
-	// }
-
 	// Initialize sync waitgroup.
 	var wg sync.WaitGroup
 	disks := xl.getDisks()
@@ -262,14 +207,6 @@ func (xl xlObjects) deleteObjectViaFileVolume(ctx context.Context, bucket, objec
 		go func(index int, disk StorageAPI, isDir bool) {
 			defer wg.Done()
 			e := disk.DeleteFile(bucket, object)
-			// var e error
-			// if isDir {
-			// 	// DeleteFile() simply tries to remove a directory
-			// 	// and will succeed only if that directory is empty.
-			// 	e = disk.DeleteFile(minioMetaTmpBucket, tmpObj)
-			// } else {
-			// 	e = cleanupDir(ctx, disk, minioMetaTmpBucket, tmpObj)
-			// }
 			if e != nil && e != errVolumeNotFound {
 				dErrs[index] = e
 			}
@@ -284,33 +221,7 @@ func (xl xlObjects) deleteObjectViaFileVolume(ctx context.Context, bucket, objec
 }
 
 func (xl xlObjects) doDeleteObjectsViaFileVolume(ctx context.Context, bucket string, objects []string, errs []error, writeQuorums []int, isDirs []bool) ([]error, error) {
-	// var tmpObjs = make([]string, len(objects))
 	var disks = xl.getDisks()
-	//
-	// if bucket == minioMetaTmpBucket {
-	// 	copy(tmpObjs, objects)
-	// } else {
-	// 	for i, object := range objects {
-	// 		if errs[i] != nil {
-	// 			continue
-	// 		}
-	// 		var err error
-	// 		tmpObjs[i] = mustGetUUID()
-	// 		// Rename the current object while requiring write quorum, but also consider
-	// 		// that a non found object in a given disk as a success since it already
-	// 		// confirms that the object doesn't have a part in that disk (already removed)
-	// 		if isDirs[i] {
-	// 			disks, err = rename(ctx, xl.getDisks(), bucket, object, minioMetaTmpBucket, tmpObjs[i], true, writeQuorums[i],
-	// 				[]error{errFileNotFound, errFileAccessDenied})
-	// 		} else {
-	// 			disks, err = rename(ctx, xl.getDisks(), bucket, object, minioMetaTmpBucket, tmpObjs[i], true, writeQuorums[i],
-	// 				[]error{errFileNotFound})
-	// 		}
-	// 		if err != nil {
-	// 			errs[i] = err
-	// 		}
-	// 	}
-	// }
 
 	// Initialize list of errors.
 	var opErrs = make([]error, len(disks))

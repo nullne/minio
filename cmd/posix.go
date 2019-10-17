@@ -23,7 +23,6 @@ import (
 	"io"
 	"io/ioutil"
 	"os"
-	"path"
 	slashpath "path"
 	"path/filepath"
 	"runtime"
@@ -546,7 +545,7 @@ func (s *posix) MakeVol(volume string) (err error) {
 
 		// only invoke when creating bucket
 		if len(vs) == 1 && globalFileVolumeEnabled && !isMinioMetaBucketName(volume) {
-			err = globalFileVolumes.Add(context.Background(), path.Join(s.diskPath, volume))
+			err = globalFileVolumes.Add(context.Background(), filepath.Join(s.diskPath, volume))
 		}
 		return err
 	}
@@ -815,7 +814,6 @@ func (s *posix) ListDir(volume, dirPath string, count int, leafFile string) (ent
 	if err != nil {
 		return nil, err
 	}
-
 	// Stat a volume entry.
 	_, err = os.Stat((volumeDir))
 	if err != nil {
@@ -1729,10 +1727,6 @@ func (s *posix) VerifyFile(volume, path string, fileSize int64, algo BitrotAlgor
 	buf := make([]byte, shardSize)
 	h := algo.New()
 	hashBuf := make([]byte, h.Size())
-	// fi, err := file.Stat()
-	// if err != nil {
-	// 	return err
-	// }
 
 	// Calculate the size of the bitrot file and compare
 	// it with the actual file size.
@@ -1740,7 +1734,6 @@ func (s *posix) VerifyFile(volume, path string, fileSize int64, algo BitrotAlgor
 		return errFileUnexpectedSize
 	}
 
-	// size := fi.Size()
 	for {
 		if size == 0 {
 			return nil
