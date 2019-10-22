@@ -1,4 +1,4 @@
-package rocksdb
+package badger
 
 import (
 	"io/ioutil"

@@ -256,12 +256,13 @@ func (db *rocksDBIndex) ListN(keyPrefix, leaf string, count int) ([]string, erro
 
 		key.Free()
 
+		ignorePrefix := []byte(volume.PathJoin(keyPrefix, entry, "/"))
 		for {
 			if db.isClosed() {
 				return nil, interfaces.ErrDBClosed
 			}
 			it.Next()
-			if !it.ValidForPrefix([]byte(volume.PathJoin(keyPrefix, entry))) {
+			if !it.ValidForPrefix(ignorePrefix) {
 				break
 			}
 		}

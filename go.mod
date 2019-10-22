@@ -13,6 +13,7 @@ require (
 	github.com/cheggaaa/pb v1.0.28
 	github.com/coredns/coredns v1.4.0
 	github.com/coreos/etcd v3.3.12+incompatible
+	github.com/dgraph-io/badger v1.6.0
 	github.com/dgrijalva/jwt-go v3.2.0+incompatible
 	github.com/djherbis/atime v1.0.0
 	github.com/dustin/go-humanize v1.0.0
