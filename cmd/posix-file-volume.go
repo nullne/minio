@@ -2,29 +2,51 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"io"
 	"os"
 	"path"
 	"path/filepath"
-	"plugin"
+	"strings"
 
+	"github.com/minio/minio/pkg/volume"
+	"github.com/minio/minio/pkg/volume/index/badger"
 	"github.com/minio/minio/pkg/volume/interfaces"
 )
 
 func initGlobalFileVolumes() (interfaces.Volumes, error) {
-	pluginPath := os.Getenv("MINIO_FILE_VOLUME_PLUGIN_PATH")
-	p, err := plugin.Open(pluginPath)
-	if err != nil {
-		return nil, err
-	}
-	newVolumes, err := p.Lookup("NewVolumes")
-	if err != nil {
+	vs := volume.NewVolumes(newVolume)
+	return vs, nil
+}
+
+func newVolume(ctx context.Context, dir string) (interfaces.Volume, error) {
+	var err error
+	if dir, err = volume.GetValidPath(dir); err != nil {
 		return nil, err
 	}
 
-	vs := newVolumes.(func() interfaces.Volumes)()
-	return vs, nil
+	if err := volume.MkdirIfNotExist(dir); err != nil {
+		return nil, err
+	}
+
+	options := volume.IndexOptions{}
+	if s := os.Getenv("MINIO_FILE_VOLUME_INDEX_ROOT"); s != "" {
+		options.Root = s
+	}
+	idx, err := badger.NewIndex(dir, options)
+	if err != nil {
+		return nil, err
+	}
+	v, err := volume.NewVolume(ctx, dir, idx)
+	if err != nil {
+		idx.Close()
+		return nil, err
+	}
+	v.SetDirectIndexSaving(func(key string) bool {
+		return strings.HasSuffix(key, xlMetaJSONFile)
+	})
+	return v, nil
 }
 
 func convertError(err error, directory bool) error {
