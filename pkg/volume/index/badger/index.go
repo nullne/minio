@@ -2,6 +2,7 @@ package badger
 
 import (
 	"bytes"
+	"os"
 	"path"
 	"path/filepath"
 	"strings"
@@ -9,13 +10,12 @@ import (
 	"syscall"
 
 	"github.com/dgraph-io/badger"
-	bg "github.com/dgraph-io/badger"
 	"github.com/minio/minio/pkg/volume"
 	"github.com/minio/minio/pkg/volume/interfaces"
 )
 
 type badgerIndex struct {
-	*bg.DB
+	*badger.DB
 
 	closed uint32
 	wg     sync.WaitGroup
@@ -27,8 +27,8 @@ func NewIndex(name string, options volume.IndexOptions) (volume.Index, error) {
 		return nil, err
 	}
 
-	opts := bg.DefaultOptions(p)
-	db, err := bg.Open(opts)
+	opts := getOptions(p)
+	db, err := badger.Open(opts)
 	if err != nil {
 		return nil, err
 	}
@@ -39,9 +39,51 @@ func NewIndex(name string, options volume.IndexOptions) (volume.Index, error) {
 	return &idx, nil
 }
 
+func getOptions(dir string) badger.Options {
+	opts := badger.DefaultOptions(dir)
+
+	if s := os.Getenv("MINIO_BADGER_SYNC_WRITES"); s == "on" {
+		opts.SyncWrites = true
+	}
+
+	// opts.NumVersionsToKeep = p.GetInt(badgerNumVersionsToKeep, 1)
+	// opts.MaxTableSize = p.GetInt64(badgerMaxTableSize, 64<<20)
+	// opts.LevelSizeMultiplier = p.GetInt(badgerLevelSizeMultiplier, 10)
+	// opts.MaxLevels = p.GetInt(badgerMaxLevels, 7)
+	// opts.ValueThreshold = p.GetInt(badgerValueThreshold, 32)
+	// opts.NumMemtables = p.GetInt(badgerNumMemtables, 5)
+	// opts.NumLevelZeroTables = p.GetInt(badgerNumLevelZeroTables, 5)
+	// opts.NumLevelZeroTablesStall = p.GetInt(badgerNumLevelZeroTablesStall, 10)
+	// opts.LevelOneSize = p.GetInt64(badgerLevelOneSize, 256<<20)
+	// opts.ValueLogFileSize = p.GetInt64(badgerValueLogFileSize, 1<<30)
+	// opts.ValueLogMaxEntries = uint32(p.GetUint64(badgerValueLogMaxEntries, 1000000))
+	// opts.NumCompactors = p.GetInt(badgerNumCompactors, 3)
+	// opts.DoNotCompact = p.GetBool(badgerDoNotCompact, false)
+	// if b := p.GetString(badgerTableLoadingMode, "LoadToRAM"); len(b) > 0 {
+	// 	if b == "FileIO" {
+	// 		opts.TableLoadingMode = options.FileIO
+	// 	} else if b == "LoadToRAM" {
+	// 		opts.TableLoadingMode = options.LoadToRAM
+	// 	} else if b == "MemoryMap" {
+	// 		opts.TableLoadingMode = options.MemoryMap
+	// 	}
+	// }
+	// if b := p.GetString(badgerValueLogLoadingMode, "MemoryMap"); len(b) > 0 {
+	// 	if b == "FileIO" {
+	// 		opts.ValueLogLoadingMode = options.FileIO
+	// 	} else if b == "LoadToRAM" {
+	// 		opts.ValueLogLoadingMode = options.LoadToRAM
+	// 	} else if b == "MemoryMap" {
+	// 		opts.ValueLogLoadingMode = options.MemoryMap
+	// 	}
+	// }
+
+	return opts
+}
+
 func (db *badgerIndex) Get(key string) ([]byte, error) {
 	var val []byte
-	err := db.View(func(txn *bg.Txn) error {
+	err := db.View(func(txn *badger.Txn) error {
 		item, e := txn.Get([]byte(key))
 		if e != nil {
 			return e
@@ -53,7 +95,7 @@ func (db *badgerIndex) Get(key string) ([]byte, error) {
 		return nil
 	})
 	if err != nil {
-		if err == bg.ErrKeyNotFound {
+		if err == badger.ErrKeyNotFound {
 			return nil, interfaces.ErrKeyNotExisted
 		}
 		return nil, err
@@ -70,8 +112,8 @@ func (db *badgerIndex) Set(key string, data []byte) error {
 
 func (db *badgerIndex) Delete(keyPrefix string) error {
 	var keys [][]byte
-	err := db.View(func(txn *bg.Txn) error {
-		opts := bg.DefaultIteratorOptions
+	err := db.View(func(txn *badger.Txn) error {
+		opts := badger.DefaultIteratorOptions
 		opts.PrefetchValues = false
 		it := txn.NewIterator(opts)
 		defer it.Close()
@@ -113,8 +155,8 @@ func (db *badgerIndex) ListN(keyPrefix, leaf string, count int) ([]string, error
 	}
 
 	prefix := []byte(keyPrefix)
-	err := db.View(func(txn *bg.Txn) error {
-		opts := bg.DefaultIteratorOptions
+	err := db.View(func(txn *badger.Txn) error {
+		opts := badger.DefaultIteratorOptions
 		opts.PrefetchValues = false
 		it := txn.NewIterator(opts)
 		defer it.Close()
