@@ -44,6 +44,8 @@ func getOptions(dir string) badger.Options {
 
 	if s := os.Getenv("MINIO_BADGER_SYNC_WRITES"); s == "on" {
 		opts.SyncWrites = true
+	} else {
+		opts.SyncWrites = false
 	}
 
 	// opts.NumVersionsToKeep = p.GetInt(badgerNumVersionsToKeep, 1)
