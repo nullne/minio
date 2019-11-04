@@ -10,12 +10,16 @@ import (
 	"syscall"
 
 	"github.com/dgraph-io/badger"
+	"github.com/dgraph-io/badger/options"
 	"github.com/minio/minio/pkg/volume"
 	"github.com/minio/minio/pkg/volume/interfaces"
+	"go.uber.org/multierr"
 )
 
 type badgerIndex struct {
 	*badger.DB
+
+	dir string
 
 	closed uint32
 	wg     sync.WaitGroup
@@ -33,7 +37,8 @@ func NewIndex(name string, options volume.IndexOptions) (volume.Index, error) {
 		return nil, err
 	}
 	idx := badgerIndex{
-		DB: db,
+		DB:  db,
+		dir: p,
 	}
 
 	return &idx, nil
@@ -48,37 +53,42 @@ func getOptions(dir string) badger.Options {
 		opts.SyncWrites = false
 	}
 
-	// opts.NumVersionsToKeep = p.GetInt(badgerNumVersionsToKeep, 1)
-	// opts.MaxTableSize = p.GetInt64(badgerMaxTableSize, 64<<20)
-	// opts.LevelSizeMultiplier = p.GetInt(badgerLevelSizeMultiplier, 10)
-	// opts.MaxLevels = p.GetInt(badgerMaxLevels, 7)
-	// opts.ValueThreshold = p.GetInt(badgerValueThreshold, 32)
-	// opts.NumMemtables = p.GetInt(badgerNumMemtables, 5)
-	// opts.NumLevelZeroTables = p.GetInt(badgerNumLevelZeroTables, 5)
-	// opts.NumLevelZeroTablesStall = p.GetInt(badgerNumLevelZeroTablesStall, 10)
-	// opts.LevelOneSize = p.GetInt64(badgerLevelOneSize, 256<<20)
-	// opts.ValueLogFileSize = p.GetInt64(badgerValueLogFileSize, 1<<30)
-	// opts.ValueLogMaxEntries = uint32(p.GetUint64(badgerValueLogMaxEntries, 1000000))
-	// opts.NumCompactors = p.GetInt(badgerNumCompactors, 3)
-	// opts.DoNotCompact = p.GetBool(badgerDoNotCompact, false)
-	// if b := p.GetString(badgerTableLoadingMode, "LoadToRAM"); len(b) > 0 {
-	// 	if b == "FileIO" {
-	// 		opts.TableLoadingMode = options.FileIO
-	// 	} else if b == "LoadToRAM" {
-	// 		opts.TableLoadingMode = options.LoadToRAM
-	// 	} else if b == "MemoryMap" {
-	// 		opts.TableLoadingMode = options.MemoryMap
-	// 	}
-	// }
-	// if b := p.GetString(badgerValueLogLoadingMode, "MemoryMap"); len(b) > 0 {
-	// 	if b == "FileIO" {
-	// 		opts.ValueLogLoadingMode = options.FileIO
-	// 	} else if b == "LoadToRAM" {
-	// 		opts.ValueLogLoadingMode = options.LoadToRAM
-	// 	} else if b == "MemoryMap" {
-	// 		opts.ValueLogLoadingMode = options.MemoryMap
-	// 	}
-	// }
+	switch os.Getenv("MINIO_BADGER_TABLE_LOADING_MODE") {
+	case "FileIO":
+		opts.TableLoadingMode = options.FileIO
+	case "MemoryMap":
+		opts.TableLoadingMode = options.MemoryMap
+	case "LoadToRAM":
+		opts.TableLoadingMode = options.LoadToRAM
+	default:
+		opts.TableLoadingMode = options.LoadToRAM
+	}
+
+	switch os.Getenv("MINIO_BADGER_VALUE_LOADING_MODE") {
+	case "FileIO":
+		opts.ValueLogLoadingMode = options.FileIO
+	case "MemoryMap":
+		opts.ValueLogLoadingMode = options.MemoryMap
+	case "LoadToRAM":
+		opts.ValueLogLoadingMode = options.LoadToRAM
+	default:
+		opts.ValueLogLoadingMode = options.MemoryMap
+	}
+	// opts.Logger = nil
+
+	// default values
+	// opts.MaxTableSize = 64 << 20
+	// opts.LevelSizeMultiplier = 10
+	// opts.MaxLevels = 7
+	// opts.ValueThreshold = 32
+	// opts.NumMemtables = 5
+	// opts.NumLevelZeroTables = 5
+	// opts.NumLevelZeroTablesStall = 10
+	// opts.LevelOneSize = 256 << 20
+	// opts.ValueLogFileSize = 1 << 30
+	// opts.ValueLogMaxEntries = 1000000
+	// opts.NumCompactors = 3
+	// opts.DoNotCompact = false
 
 	return opts
 }
@@ -209,6 +219,9 @@ func (db *badgerIndex) Close() error {
 	return db.DB.Close()
 }
 
-func (db *badgerIndex) Remove() error {
+func (db *badgerIndex) Remove() (err error) {
+	err = multierr.Append(err, db.DropAll())
+	err = multierr.Append(err, db.Close())
+	err = multierr.Append(err, os.RemoveAll(db.dir))
 	return nil
 }
