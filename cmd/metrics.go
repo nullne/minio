@@ -35,6 +35,13 @@ var (
 		},
 		[]string{"request_type"},
 	)
+	backgroundHealTimes = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "minio_background_heal_times",
+			Help: "minio_background_heal_times",
+		},
+		[]string{"state", "status"},
+	)
 )
 
 func init() {
@@ -166,6 +173,9 @@ func metricsHandler() http.Handler {
 	registry := prometheus.NewRegistry()
 
 	err := registry.Register(httpRequestsDuration)
+	logger.LogIf(context.Background(), err)
+
+	err = registry.Register(backgroundHealTimes)
 	logger.LogIf(context.Background(), err)
 
 	err = registry.Register(fv.DiskOperationDuration)

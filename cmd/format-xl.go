@@ -489,14 +489,6 @@ func formatXLGetDeploymentID(refFormat *formatXLV3, formats []*formatXLV3) (stri
 
 // formatXLFixDeploymentID - Add deployment id if it is not present.
 func formatXLFixDeploymentID(ctx context.Context, storageDisks []StorageAPI, refFormat *formatXLV3) (err error) {
-	// Acquire lock on format.json
-	mutex := newNSLock(globalIsDistXL)
-	formatLock := mutex.NewNSLock(minioMetaBucket, formatConfigFile)
-	if err = formatLock.GetLock(globalHealingTimeout); err != nil {
-		return err
-	}
-	defer formatLock.Unlock()
-
 	// Attempt to load all `format.json` from all disks.
 	var sErrs []error
 	formats, sErrs := loadFormatXLAll(storageDisks)

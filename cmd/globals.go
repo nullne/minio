@@ -267,6 +267,11 @@ var (
 
 	// Add new variable global values here.
 	globalFileVolumeEnabled bool
+
+	// background healing
+	globalBackgroundHealing *healRoutine
+
+	globalEngineStarted uint32
 )
 
 // global colors.

@@ -69,14 +69,20 @@ func getFileVolume(path string) (*fv.Volume, error) {
 
 // @TODO check validity of delete
 func closeFileVolume() error {
+	var wg sync.WaitGroup
 	globalFileVolumes.volumes.Range(func(key, value interface{}) bool {
-		if err := value.(*fv.Volume).Close(); err != nil {
-			logger.LogIf(context.Background(), err)
-		}
-		globalFileVolumes.volumes.Delete(key)
-		logger.Info("volume %s has been closed gracefully", key)
+		wg.Add(1)
+		go func(key, value interface{}) {
+			defer wg.Done()
+			if err := value.(*fv.Volume).Close(); err != nil {
+				logger.LogIf(context.Background(), err)
+			}
+			globalFileVolumes.volumes.Delete(key)
+			logger.Info("volume %s has been closed gracefully", key)
+		}(key, value)
 		return true
 	})
+	wg.Wait()
 	return nil
 }
 

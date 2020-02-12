@@ -160,7 +160,7 @@ func (xl xlObjects) GetObjectNInfo(ctx context.Context, bucket, object string, r
 
 	// Acquire lock
 	if lockType != noLock {
-		lock := xl.nsMutex.NewNSLock(bucket, object)
+		lock := xl.NewNSLock(ctx, bucket, object)
 		switch lockType {
 		case writeLock:
 			if err = lock.GetLock(globalObjectTimeout); err != nil {
@@ -227,7 +227,7 @@ func (xl xlObjects) GetObjectNInfo(ctx context.Context, bucket, object string, r
 // length indicates the total length of the object.
 func (xl xlObjects) GetObject(ctx context.Context, bucket, object string, startOffset int64, length int64, writer io.Writer, etag string, opts ObjectOptions) error {
 	// Lock the object before reading.
-	objectLock := xl.nsMutex.NewNSLock(bucket, object)
+	objectLock := xl.NewNSLock(ctx, bucket, object)
 	if err := objectLock.GetRLock(globalObjectTimeout); err != nil {
 		return err
 	}
@@ -275,6 +275,8 @@ func (xl xlObjects) getObject(ctx context.Context, bucket, object string, startO
 
 	// List all online disks.
 	onlineDisks, modTime := listOnlineDisks(xl.getDisks(), metaArr, errs)
+
+	needHeal := missingParts(errs)
 
 	// Pick latest valid metadata.
 	xlMeta, err := pickValidXLMeta(ctx, metaArr, modTime, readQuorum)
@@ -347,12 +349,15 @@ func (xl xlObjects) getObject(ctx context.Context, bucket, object string, startO
 			checksumInfo := metaArr[index].Erasure.GetChecksumInfo(partName)
 			readers[index] = newBitrotReader(disk, bucket, pathJoin(object, partName), tillOffset, checksumInfo.Algorithm, checksumInfo.Hash, erasure.ShardSize())
 		}
-		err := erasure.Decode(ctx, writer, readers, partOffset, partLength, partSize)
+		bitrotted, err := erasure.Decode(ctx, writer, readers, partOffset, partLength, partSize)
 		// Note: we should not be defer'ing the following closeBitrotReaders() call as we are inside a for loop i.e if we use defer, we would accumulate a lot of open files by the time
 		// we return from this function.
 		closeBitrotReaders(readers)
 		if err != nil {
 			return toObjectErr(err, bucket, object)
+		}
+		if bitrotted {
+			needHeal = true
 		}
 		for i, r := range readers {
 			if r == nil {
@@ -366,6 +371,10 @@ func (xl xlObjects) getObject(ctx context.Context, bucket, object string, startO
 		// the remaining parts.
 		partOffset = 0
 	} // End of read all parts loop.
+
+	if needHeal {
+		globalBackgroundHealing.queueHealObject(bucket, object)
+	}
 
 	// Return success.
 	return nil
@@ -410,7 +419,7 @@ func (xl xlObjects) getObjectInfoDir(ctx context.Context, bucket, object string)
 // GetObjectInfo - reads object metadata and replies back ObjectInfo.
 func (xl xlObjects) GetObjectInfo(ctx context.Context, bucket, object string, opts ObjectOptions) (oi ObjectInfo, e error) {
 	// Lock the object before reading.
-	objectLock := xl.nsMutex.NewNSLock(bucket, object)
+	objectLock := xl.NewNSLock(ctx, bucket, object)
 	if err := objectLock.GetRLock(globalObjectTimeout); err != nil {
 		return oi, err
 	}
@@ -550,7 +559,7 @@ func (xl xlObjects) PutObject(ctx context.Context, bucket string, object string,
 	}
 
 	// Lock the object.
-	objectLock := xl.nsMutex.NewNSLock(bucket, object)
+	objectLock := xl.NewNSLock(ctx, bucket, object)
 	if err := objectLock.GetLock(globalObjectTimeout); err != nil {
 		return objInfo, err
 	}
@@ -668,6 +677,8 @@ func (xl xlObjects) putObject(ctx context.Context, bucket string, object string,
 		buffer = buffer[:xlMeta.Erasure.BlockSize]
 	}
 
+	allWritten := true
+
 	// Read data and split into parts - similar to multipart mechanism
 	for partIdx := 1; ; partIdx++ {
 		// Compute part name
@@ -701,12 +712,15 @@ func (xl xlObjects) putObject(ctx context.Context, bucket string, object string,
 			writers[i] = newBitrotWriter(disk, minioMetaTmpBucket, tempErasureObj, erasure.ShardFileSize(curPartSize), DefaultBitrotAlgorithm, erasure.ShardSize())
 		}
 
-		n, erasureErr := erasure.Encode(ctx, curPartReader, writers, buffer, erasure.dataBlocks+1)
+		n, aw, erasureErr := erasure.Encode(ctx, curPartReader, writers, buffer, erasure.dataBlocks+1)
 		// Note: we should not be defer'ing the following closeBitrotWriters() call as we are inside a for loop i.e if we use defer, we would accumulate a lot of open files by the time
 		// we return from this function.
 		closeBitrotWriters(writers)
 		if erasureErr != nil {
 			return ObjectInfo{}, toObjectErr(erasureErr, minioMetaTmpBucket, tempErasureObj)
+		}
+		if !aw {
+			allWritten = false
 		}
 
 		// Should return IncompleteBody{} error when reader has fewer bytes
@@ -811,6 +825,11 @@ func (xl xlObjects) putObject(ctx context.Context, bucket string, object string,
 		UserDefined:     xlMeta.Meta,
 	}
 
+	// try to heal the object only on success
+	if !allWritten {
+		globalBackgroundHealing.queueHealObject(bucket, object)
+	}
+
 	// Success, return object info.
 	return objInfo, nil
 }
@@ -885,7 +904,7 @@ func (xl xlObjects) deleteObject(ctx context.Context, bucket, object string, wri
 // response to the client request.
 func (xl xlObjects) DeleteObject(ctx context.Context, bucket, object string) (err error) {
 	// Acquire a write lock before deleting the object.
-	objectLock := xl.nsMutex.NewNSLock(bucket, object)
+	objectLock := xl.NewNSLock(ctx, bucket, object)
 	if perr := objectLock.GetLock(globalOperationTimeout); perr != nil {
 		return perr
 	}

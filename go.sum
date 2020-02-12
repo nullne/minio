@@ -377,10 +377,14 @@ github.com/minio/cli v0.0.0-20170227073228-b8ae5507c0ce h1:cMutC6C4ElU0TVblNfXx6
 github.com/minio/cli v0.0.0-20170227073228-b8ae5507c0ce/go.mod h1:hLsWNQy2wIf3FKFnMlH69f4RdEyn8nbRA2shaulTjGY=
 github.com/minio/dsync v0.0.0-20190104003057-61c41ffdeea2 h1:d244DGqthdKVVB7fKUN/oVK0w1GEP3Da5YUAJKZivU4=
 github.com/minio/dsync v0.0.0-20190104003057-61c41ffdeea2/go.mod h1:eLQe3mXL0h02kNpPtBJiLr1fIEIJftgXRAjncjQbxJo=
+github.com/minio/dsync v1.0.0 h1:l6pQgUPBM41idlR0UOcpAP+EYim9MCwIAUh6sQQI1gk=
+github.com/minio/dsync v1.0.0/go.mod h1:eLQe3mXL0h02kNpPtBJiLr1fIEIJftgXRAjncjQbxJo=
 github.com/minio/highwayhash v0.0.0-20181220011308-93ed73d64169 h1:ysJt+W4oIB0YVMckoJt6SjJN/eF57XQdAlWZw786smU=
 github.com/minio/highwayhash v0.0.0-20181220011308-93ed73d64169/go.mod h1:NL8wme5P5MoscwAkXfGroz3VgpCdhBw3KYOu5mEsvpU=
 github.com/minio/lsync v0.0.0-20190207022115-a4e43e3d0887 h1:MIpCDz3d2FR2a+FjdizuFdjsoeHuLlSkl3YNQJ55jV8=
 github.com/minio/lsync v0.0.0-20190207022115-a4e43e3d0887/go.mod h1:ni10+iSX7FO8N2rv41XM444V6w4rYO0dZo5KIkbn/YA=
+github.com/minio/lsync v1.0.1 h1:AVvILxA976xc27hstd1oR+X9PQG0sPSom1MNb1ImfUs=
+github.com/minio/lsync v1.0.1/go.mod h1:tCFzfo0dlvdGl70IT4IAK/5Wtgb0/BrTmo/jE8pArKA=
 github.com/minio/mc v0.0.0-20190311071728-2e612b23d665 h1:fL4R87wJA+Y0RjGMD8gUnI0AkBc5q1+APDDVx3Loz6g=
 github.com/minio/mc v0.0.0-20190311071728-2e612b23d665/go.mod h1:7qLZXNjCD55DJ3iqe1uWoUh1MASRVd1M6wnqSdyhx7Y=
 github.com/minio/minio v0.0.0-20190206103305-fd4e15c11641/go.mod h1:lXcp05uxYaW99ebgI6ZKIGYU7tqZkM5xSsG0xRt4VIU=

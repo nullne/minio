@@ -39,7 +39,7 @@ import (
 	"github.com/minio/minio/pkg/cpu"
 	"github.com/minio/minio/pkg/disk"
 	"github.com/minio/minio/pkg/handlers"
-	"github.com/minio/minio/pkg/iam/policy"
+	iampolicy "github.com/minio/minio/pkg/iam/policy"
 	"github.com/minio/minio/pkg/madmin"
 	"github.com/minio/minio/pkg/mem"
 	xnet "github.com/minio/minio/pkg/net"
@@ -386,7 +386,14 @@ func (a adminAPIHandlers) PerfInfoHandler(w http.ResponseWriter, r *http.Request
 }
 
 func newLockEntry(l lockRequesterInfo, resource, server string) *madmin.LockEntry {
-	entry := &madmin.LockEntry{Timestamp: l.Timestamp, Resource: resource, ServerList: []string{server}, Owner: l.Node, Source: l.Source, ID: l.UID}
+	entry := &madmin.LockEntry{
+		Timestamp:  l.Timestamp,
+		Resource:   resource,
+		ServerList: []string{server},
+		// Owner:      l.Node,
+		Source: l.Source,
+		ID:     l.UID,
+	}
 	if l.Writer {
 		entry.Type = "Write"
 	} else {
@@ -396,18 +403,19 @@ func newLockEntry(l lockRequesterInfo, resource, server string) *madmin.LockEntr
 }
 
 func topLockEntries(peerLocks []*PeerLocks) madmin.LockEntries {
-	const listCount int = 10
 	entryMap := make(map[string]*madmin.LockEntry)
 	for _, peerLock := range peerLocks {
 		if peerLock == nil {
 			continue
 		}
-		for k, v := range peerLock.Locks {
-			for _, lockReqInfo := range v {
-				if val, ok := entryMap[lockReqInfo.UID]; ok {
-					val.ServerList = append(val.ServerList, peerLock.Addr)
-				} else {
-					entryMap[lockReqInfo.UID] = newLockEntry(lockReqInfo, k, peerLock.Addr)
+		for _, locks := range peerLock.Locks {
+			for k, v := range locks {
+				for _, lockReqInfo := range v {
+					if val, ok := entryMap[lockReqInfo.UID]; ok {
+						val.ServerList = append(val.ServerList, peerLock.Addr)
+					} else {
+						entryMap[lockReqInfo.UID] = newLockEntry(lockReqInfo, k, peerLock.Addr)
+					}
 				}
 			}
 		}
@@ -417,6 +425,7 @@ func topLockEntries(peerLocks []*PeerLocks) madmin.LockEntries {
 		lockEntries = append(lockEntries, *v)
 	}
 	sort.Sort(lockEntries)
+	const listCount int = 10
 	if len(lockEntries) > listCount {
 		lockEntries = lockEntries[:listCount]
 	}
@@ -451,12 +460,17 @@ func (a adminAPIHandlers) TopLocksHandler(w http.ResponseWriter, r *http.Request
 	}
 
 	peerLocks := globalNotificationSys.GetLocks(ctx)
+
 	// Once we have received all the locks currently used from peers
 	// add the local peer locks list as well.
-	localLocks := globalLockServer.ll.DupLockMap()
+	var getRespLocks GetLocksResp
+	for _, llocker := range globalLockServers {
+		getRespLocks = append(getRespLocks, llocker.DupLockMap())
+	}
+
 	peerLocks = append(peerLocks, &PeerLocks{
 		Addr:  thisAddr.String(),
-		Locks: localLocks,
+		Locks: getRespLocks,
 	})
 
 	topLocks := topLockEntries(peerLocks)

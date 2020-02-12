@@ -29,6 +29,7 @@ import (
 
 	"github.com/minio/minio/cmd/logger"
 	"github.com/minio/minio/pkg/bpool"
+	"github.com/minio/minio/pkg/dsync"
 	"github.com/minio/minio/pkg/madmin"
 	"github.com/minio/minio/pkg/policy"
 	"github.com/minio/minio/pkg/sync/errgroup"
@@ -49,6 +50,8 @@ func (s setsStorageAPI) Close() error {
 	return nil
 }
 
+type setsDsyncLockers [][]dsync.NetLocker
+
 // xlSets implements ObjectLayer combining a static list of erasure coded
 // object sets. NOTE: There is no dynamic scaling allowed or intended in
 // current design.
@@ -63,6 +66,12 @@ type xlSets struct {
 
 	// Re-ordered list of disks per set.
 	xlDisks setsStorageAPI
+
+	// Distributed locker clients.
+	xlLockers setsDsyncLockers
+
+	// Lockers map holds dsync lockers for each endpoint
+	lockersMap map[Endpoint]dsync.NetLocker
 
 	// List of endpoints provided on the command line.
 	endpoints EndpointList
@@ -191,6 +200,7 @@ func (s *xlSets) connectDisksWithQuorum() {
 				continue
 			}
 			s.xlDisks[i][j] = disk
+			s.xlLockers[i][j] = s.lockersMap[endpoint]
 			onlineDisks++
 		}
 		// Sleep for a while - so that we don't go into
@@ -220,6 +230,7 @@ func (s *xlSets) connectDisks() {
 		}
 		s.xlDisksMu.Lock()
 		s.xlDisks[i][j] = disk
+		s.xlLockers[i][j] = s.lockersMap[endpoint]
 		s.xlDisksMu.Unlock()
 	}
 }
@@ -244,6 +255,22 @@ func (s *xlSets) monitorAndConnectEndpoints(monitorInterval time.Duration) {
 	}
 }
 
+func (s *xlSets) GetLockers(setIndex int) func() []dsync.NetLocker {
+	return func() []dsync.NetLocker {
+		s.xlDisksMu.Lock()
+		defer s.xlDisksMu.Unlock()
+		lockers := make([]dsync.NetLocker, s.drivesPerSet)
+		copy(lockers, s.xlLockers[setIndex])
+		for i, lk := range lockers {
+			// Add error lockers for unavailable locker.
+			if lk == nil {
+				lockers[i] = &errorLocker{}
+			}
+		}
+		return lockers
+	}
+}
+
 // GetDisks returns a closure for a given set, which provides list of disks per set.
 func (s *xlSets) GetDisks(setIndex int) func() []StorageAPI {
 	return func() []StorageAPI {
@@ -259,11 +286,17 @@ const defaultMonitorConnectEndpointInterval = time.Second * 10 // Set to 10 secs
 
 // Initialize new set of erasure coded sets.
 func newXLSets(endpoints EndpointList, format *formatXLV3, setCount int, drivesPerSet int) (ObjectLayer, error) {
+	lockersMap := make(map[Endpoint]dsync.NetLocker)
+	for _, endpoint := range endpoints {
+		lockersMap[endpoint] = newLockAPI(endpoint)
+	}
 
 	// Initialize the XL sets instance.
 	s := &xlSets{
 		sets:               make([]*xlObjects, setCount),
 		xlDisks:            make([][]StorageAPI, setCount),
+		xlLockers:          make([][]dsync.NetLocker, setCount),
+		lockersMap:         lockersMap,
 		endpoints:          endpoints,
 		setCount:           setCount,
 		drivesPerSet:       drivesPerSet,
@@ -281,12 +314,14 @@ func newXLSets(endpoints EndpointList, format *formatXLV3, setCount int, drivesP
 
 	for i := 0; i < len(format.XL.Sets); i++ {
 		s.xlDisks[i] = make([]StorageAPI, drivesPerSet)
+		s.xlLockers[i] = make([]dsync.NetLocker, drivesPerSet)
 
 		// Initialize xl objects for a given set.
 		s.sets[i] = &xlObjects{
-			getDisks: s.GetDisks(i),
-			nsMutex:  mutex,
-			bp:       bp,
+			getDisks:   s.GetDisks(i),
+			getLockers: s.GetLockers(i),
+			nsMutex:    mutex,
+			bp:         bp,
 		}
 		go s.sets[i].cleanupStaleMultipartUploads(context.Background(), GlobalMultipartCleanupInterval, GlobalMultipartExpiry, GlobalServiceDoneCh)
 	}
@@ -298,6 +333,11 @@ func newXLSets(endpoints EndpointList, format *formatXLV3, setCount int, drivesP
 	go s.monitorAndConnectEndpoints(defaultMonitorConnectEndpointInterval)
 
 	return s, nil
+}
+
+// NewNSLock - initialize a new namespace RWLocker instance.
+func (s *xlSets) NewNSLock(ctx context.Context, bucket string, object string) RWLocker {
+	return s.getHashedSet(object).NewNSLock(ctx, bucket, object)
 }
 
 // StorageInfo - combines output of StorageInfo across all erasure coded object sets.
@@ -628,7 +668,7 @@ func (s *xlSets) CopyObject(ctx context.Context, srcBucket, srcObject, destBucke
 	}
 
 	if !cpSrcDstSame {
-		objectDWLock := destSet.nsMutex.NewNSLock(destBucket, destObject)
+		objectDWLock := destSet.NewNSLock(ctx, destBucket, destObject)
 		if err := objectDWLock.GetLock(globalObjectTimeout); err != nil {
 			return objInfo, err
 		}
@@ -947,7 +987,7 @@ func formatsToDrivesInfo(endpoints EndpointList, formats []*formatXLV3, sErrs []
 // healing in a distributed setup.
 func (s *xlSets) ReloadFormat(ctx context.Context, dryRun bool) (err error) {
 	// Acquire lock on format.json
-	formatLock := s.getHashedSet(formatConfigFile).nsMutex.NewNSLock(minioMetaBucket, formatConfigFile)
+	formatLock := s.getHashedSet(formatConfigFile).NewNSLock(ctx, minioMetaBucket, formatConfigFile)
 	if err = formatLock.GetRLock(globalHealingTimeout); err != nil {
 		return err
 	}
@@ -1068,7 +1108,7 @@ func markRootDisksAsDown(storageDisks []StorageAPI) {
 // coded data in it.
 func (s *xlSets) HealFormat(ctx context.Context, dryRun bool) (res madmin.HealResultItem, err error) {
 	// Acquire lock on format.json
-	formatLock := s.getHashedSet(formatConfigFile).nsMutex.NewNSLock(minioMetaBucket, formatConfigFile)
+	formatLock := s.getHashedSet(formatConfigFile).NewNSLock(ctx, minioMetaBucket, formatConfigFile)
 	if err = formatLock.GetLock(globalHealingTimeout); err != nil {
 		return madmin.HealResultItem{}, err
 	}
@@ -1221,7 +1261,7 @@ func (s *xlSets) HealFormat(ctx context.Context, dryRun bool) (res madmin.HealRe
 
 // HealBucket - heals inconsistent buckets and bucket metadata on all sets.
 func (s *xlSets) HealBucket(ctx context.Context, bucket string, dryRun, remove bool) (result madmin.HealResultItem, err error) {
-	bucketLock := globalNSMutex.NewNSLock(bucket, "")
+	bucketLock := s.NewNSLock(ctx, bucket, "")
 	if err := bucketLock.GetLock(globalHealingTimeout); err != nil {
 		return result, err
 	}

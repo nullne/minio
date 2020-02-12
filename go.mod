@@ -126,7 +126,7 @@ require (
 	github.com/minio/cli v0.0.0-20170227073228-b8ae5507c0ce
 	github.com/minio/dsync v0.0.0-20190104003057-61c41ffdeea2
 	github.com/minio/highwayhash v0.0.0-20181220011308-93ed73d64169
-	github.com/minio/lsync v0.0.0-20190207022115-a4e43e3d0887
+	github.com/minio/lsync v1.0.1
 	github.com/minio/mc v0.0.0-20190311071728-2e612b23d665
 	github.com/minio/minio-go v0.0.0-20190227180923-59af836a7e6d
 	github.com/minio/parquet-go v0.0.0-20190318185229-9d767baf1679
@@ -198,3 +198,5 @@ require (
 	layeh.com/radius v0.0.0-20190118135028-0f678f039617 // indirect
 	sigs.k8s.io/yaml v1.1.0 // indirect
 )
+
+go 1.13

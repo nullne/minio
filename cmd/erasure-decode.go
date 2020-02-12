@@ -19,7 +19,9 @@ package cmd
 import (
 	"context"
 	"io"
+	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/minio/minio/cmd/logger"
 )
@@ -58,7 +60,7 @@ func (p *parallelReader) canDecode(buf [][]byte) bool {
 }
 
 // Read reads from readers in parallel. Returns p.dataBlocks number of bufs.
-func (p *parallelReader) Read() ([][]byte, error) {
+func (p *parallelReader) Read() ([][]byte, bool, error) {
 	newBuf := make([][]byte, len(p.readers))
 	var newBufLK sync.RWMutex
 
@@ -74,6 +76,7 @@ func (p *parallelReader) Read() ([][]byte, error) {
 
 	readerIndex := 0
 	var wg sync.WaitGroup
+	bitrotted := uint32(0)
 	// if readTrigger is true, it implies next disk.ReadAt() should be tried
 	// if readTrigger is false, it implies previous disk.ReadAt() was successful and there is no need
 	// to try reading the next disk.
@@ -112,6 +115,11 @@ func (p *parallelReader) Read() ([][]byte, error) {
 				p.readers[i] = nil
 				// Since ReadAt returned error, trigger another read.
 				readTriggerCh <- true
+
+				if isCorrupt := strings.HasPrefix(err.Error(), "Bitrot verification mismatch"); isCorrupt {
+					atomic.AddUint32(&bitrotted, 1)
+				}
+
 				return
 			}
 			newBufLK.Lock()
@@ -124,26 +132,27 @@ func (p *parallelReader) Read() ([][]byte, error) {
 	}
 	wg.Wait()
 
+	bt := bitrotted != 0
 	if p.canDecode(newBuf) {
 		p.offset += p.shardSize
-		return newBuf, nil
+		return newBuf, bt, nil
 	}
 
-	return nil, errXLReadQuorum
+	return nil, bt, errXLReadQuorum
 }
 
 // Decode reads from readers, reconstructs data if needed and writes the data to the writer.
-func (e Erasure) Decode(ctx context.Context, writer io.Writer, readers []io.ReaderAt, offset, length, totalLength int64) error {
+func (e Erasure) Decode(ctx context.Context, writer io.Writer, readers []io.ReaderAt, offset, length, totalLength int64) (bool, error) {
 	if offset < 0 || length < 0 {
 		logger.LogIf(ctx, errInvalidArgument)
-		return errInvalidArgument
+		return false, errInvalidArgument
 	}
 	if offset+length > totalLength {
 		logger.LogIf(ctx, errInvalidArgument)
-		return errInvalidArgument
+		return false, errInvalidArgument
 	}
 	if length == 0 {
-		return nil
+		return false, nil
 	}
 
 	reader := newParallelReader(readers, e, offset, totalLength)
@@ -152,6 +161,7 @@ func (e Erasure) Decode(ctx context.Context, writer io.Writer, readers []io.Read
 	endBlock := (offset + length) / e.blockSize
 
 	var bytesWritten int64
+	bitrotted := false
 	for block := startBlock; block <= endBlock; block++ {
 		var blockOffset, blockLength int64
 		switch {
@@ -171,23 +181,27 @@ func (e Erasure) Decode(ctx context.Context, writer io.Writer, readers []io.Read
 		if blockLength == 0 {
 			break
 		}
-		bufs, err := reader.Read()
+		bufs, bt, err := reader.Read()
 		if err != nil {
-			return err
+			return bitrotted, err
 		}
 		if err = e.DecodeDataBlocks(bufs); err != nil {
 			logger.LogIf(ctx, err)
-			return err
+			return bitrotted, err
 		}
 		n, err := writeDataBlocks(ctx, writer, bufs, e.dataBlocks, blockOffset, blockLength)
 		if err != nil {
-			return err
+			return bitrotted, err
 		}
+		if bt {
+			bitrotted = bt
+		}
+
 		bytesWritten += n
 	}
 	if bytesWritten != length {
 		logger.LogIf(ctx, errLessData)
-		return errLessData
+		return bitrotted, errLessData
 	}
-	return nil
+	return bitrotted, nil
 }

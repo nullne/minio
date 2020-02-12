@@ -263,8 +263,8 @@ func prepareAdminXLTestBed() (*adminXLTestBed, error) {
 	globalIsXL = true
 
 	// initialize NSLock.
-	isDistXL := false
-	initNSLock(isDistXL)
+	// isDistXL := false
+	// initNSLock(isDistXL)
 
 	// Init global heal state
 	initAllHealState(globalIsXL)

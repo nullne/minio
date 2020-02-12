@@ -523,7 +523,7 @@ func (sys *NotificationSys) initListeners(ctx context.Context, objAPI ObjectLaye
 	// As object layer's GetObject() and PutObject() take respective lock on minioMetaBucket
 	// and configFile, take a transaction lock to avoid data race between readConfig()
 	// and saveConfig().
-	objLock := globalNSMutex.NewNSLock(minioMetaBucket, transactionConfigFile)
+	objLock := objAPI.NewNSLock(ctx, minioMetaBucket, transactionConfigFile)
 	if err := objLock.GetRLock(globalOperationTimeout); err != nil {
 		return err
 	}
@@ -971,7 +971,7 @@ func SaveListener(objAPI ObjectLayer, bucketName string, eventNames []event.Name
 	// As object layer's GetObject() and PutObject() take respective lock on minioMetaBucket
 	// and configFile, take a transaction lock to avoid data race between readConfig()
 	// and saveConfig().
-	objLock := globalNSMutex.NewNSLock(minioMetaBucket, transactionConfigFile)
+	objLock := objAPI.NewNSLock(ctx, minioMetaBucket, transactionConfigFile)
 	if err := objLock.GetLock(globalOperationTimeout); err != nil {
 		return err
 	}
@@ -1022,7 +1022,7 @@ func RemoveListener(objAPI ObjectLayer, bucketName string, targetID event.Target
 	// As object layer's GetObject() and PutObject() take respective lock on minioMetaBucket
 	// and configFile, take a transaction lock to avoid data race between readConfig()
 	// and saveConfig().
-	objLock := globalNSMutex.NewNSLock(minioMetaBucket, transactionConfigFile)
+	objLock := objAPI.NewNSLock(ctx, minioMetaBucket, transactionConfigFile)
 	if err := objLock.GetLock(globalOperationTimeout); err != nil {
 		return err
 	}

@@ -69,7 +69,7 @@ func init() {
 	globalIsDistXL = false
 
 	// Initialize name space lock.
-	initNSLock(globalIsDistXL)
+	// initNSLock(globalIsDistXL)
 
 	// Disable printing console messages during tests.
 	color.Output = ioutil.Discard
@@ -442,9 +442,9 @@ func resetGlobalConfig() {
 
 // reset global NSLock.
 func resetGlobalNSLock() {
-	if globalNSMutex != nil {
-		globalNSMutex = nil
-	}
+	// if globalNSMutex != nil {
+	// 	globalNSMutex = nil
+	// }
 }
 
 func resetGlobalEndpoints() {
@@ -1914,7 +1914,7 @@ func ExecObjectLayerAPITest(t *testing.T, objAPITest objAPITestType, endpoints [
 	resetTestGlobals()
 
 	// initialize NSLock.
-	initNSLock(false)
+	// initNSLock(false)
 
 	objLayer, fsDir, err := prepareFS()
 	if err != nil {

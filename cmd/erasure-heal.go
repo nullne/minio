@@ -28,7 +28,7 @@ import (
 func (e Erasure) Heal(ctx context.Context, readers []io.ReaderAt, writers []io.Writer, size int64) error {
 	r, w := io.Pipe()
 	go func() {
-		if err := e.Decode(ctx, w, readers, 0, size, size); err != nil {
+		if _, err := e.Decode(ctx, w, readers, 0, size, size); err != nil {
 			w.CloseWithError(err)
 			return
 		}
@@ -36,7 +36,7 @@ func (e Erasure) Heal(ctx context.Context, readers []io.ReaderAt, writers []io.W
 	}()
 	buf := make([]byte, e.blockSize)
 	// quorum is 1 because CreateFile should continue writing as long as we are writing to even 1 disk.
-	n, err := e.Encode(ctx, r, writers, buf, 1)
+	n, _, err := e.Encode(ctx, r, writers, buf, 1)
 	if err != nil {
 		return err
 	}

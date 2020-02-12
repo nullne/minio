@@ -21,8 +21,10 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/gob"
+	"fmt"
 	"io"
 	"net/url"
+	"sync/atomic"
 
 	"github.com/minio/minio/cmd/http"
 	"github.com/minio/minio/cmd/logger"
@@ -36,14 +38,18 @@ import (
 type peerRESTClient struct {
 	host       *xnet.Host
 	restClient *rest.Client
-	connected  bool
+	connected  int32
+	nodeOnline func() bool
 }
 
 // Reconnect to a peer rest server.
 func (client *peerRESTClient) reConnect() error {
 	// correct (intelligent) retry logic will be
 	// implemented in subsequent PRs.
-	client.connected = true
+	if !client.nodeOnline() {
+		return fmt.Errorf("node %s is offline", client.host)
+	}
+	atomic.StoreInt32(&client.connected, 1)
 	return nil
 }
 
@@ -51,7 +57,7 @@ func (client *peerRESTClient) reConnect() error {
 // permanently. The only way to restore the connection is at the xl-sets layer by xlsets.monitorAndConnectEndpoints()
 // after verifying format.json
 func (client *peerRESTClient) call(method string, values url.Values, body io.Reader, length int64) (respBody io.ReadCloser, err error) {
-	if !client.connected {
+	if !client.IsOnline() {
 		err := client.reConnect()
 		logger.LogIf(context.Background(), err)
 		if err != nil {
@@ -69,7 +75,7 @@ func (client *peerRESTClient) call(method string, values url.Values, body io.Rea
 	}
 
 	if isNetworkError(err) {
-		client.connected = false
+		atomic.StoreInt32(&client.connected, 0)
 	}
 
 	return nil, err
@@ -82,18 +88,18 @@ func (client *peerRESTClient) String() string {
 
 // IsOnline - returns whether RPC client failed to connect or not.
 func (client *peerRESTClient) IsOnline() bool {
-	return client.connected
+	return atomic.LoadInt32(&client.connected) == 1 && client.nodeOnline()
 }
 
 // Close - marks the client as closed.
 func (client *peerRESTClient) Close() error {
-	client.connected = false
+	atomic.StoreInt32(&client.connected, 0)
 	client.restClient.Close()
 	return nil
 }
 
 // GetLocksResp stores various info from the client for each lock that is requested.
-type GetLocksResp map[string][]lockRequesterInfo
+type GetLocksResp []map[string][]lockRequesterInfo
 
 // GetLocks - fetch older locks for a remote node.
 func (client *peerRESTClient) GetLocks() (locks GetLocksResp, err error) {
@@ -405,11 +411,17 @@ func newPeerRESTClient(peer *xnet.Host) (*peerRESTClient, error) {
 		}
 	}
 
-	restClient, err := rest.NewClient(serverURL, tlsConfig, rest.DefaultRESTTimeout, newAuthToken)
+	trFn := newCustomHTTPTransport(tlsConfig, rest.DefaultRESTTimeout, rest.DefaultRESTTimeout)
+	restClient, err := rest.NewClient(serverURL, trFn, newAuthToken)
 
 	if err != nil {
-		return &peerRESTClient{host: peer, restClient: restClient, connected: false}, err
+		return &peerRESTClient{host: peer, restClient: restClient, connected: 0}, err
 	}
 
-	return &peerRESTClient{host: peer, restClient: restClient, connected: true}, nil
+	return &peerRESTClient{
+		host:       peer,
+		restClient: restClient,
+		connected:  1,
+		nodeOnline: globalNodeMonitor.NodeOnlineFn(peer.String()),
+	}, nil
 }

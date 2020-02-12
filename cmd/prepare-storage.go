@@ -244,6 +244,10 @@ func connectLoadInitFormats(retryCount int, firstDisk bool, endpoints EndpointLi
 	}
 
 	if format.ID == "" {
+		// Not a first disk, wait until first disk fixes deploymentID
+		if !firstDisk {
+			return nil, errNotFirstDisk
+		}
 		if err = formatXLFixDeploymentID(context.Background(), storageDisks, format); err != nil {
 			return nil, err
 		}

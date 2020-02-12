@@ -25,6 +25,7 @@ import (
 	"net/url"
 	"path"
 	"strconv"
+	"sync/atomic"
 
 	"encoding/gob"
 	"encoding/hex"
@@ -42,6 +43,9 @@ func isNetworkError(err error) bool {
 		return false
 	}
 	if err.Error() == errConnectionStale.Error() {
+		return true
+	}
+	if err.Error() == rest.ErrServerShuttingDown.Error() {
 		return true
 	}
 	if uerr, isURLError := err.(*url.Error); isURLError {
@@ -122,16 +126,18 @@ func toStorageErr(err error) error {
 type storageRESTClient struct {
 	endpoint   Endpoint
 	restClient *rest.Client
-	connected  bool
+	connected  int32
 	lastError  error
 	instanceID string // REST server's instanceID which is sent with every request for validation.
+
+	nodeOnline func() bool
 }
 
 // Wrapper to restClient.Call to handle network errors, in case of network error the connection is makred disconnected
 // permanently. The only way to restore the storage connection is at the xl-sets layer by xlsets.monitorAndConnectEndpoints()
 // after verifying format.json
 func (client *storageRESTClient) call(method string, values url.Values, body io.Reader, length int64) (respBody io.ReadCloser, err error) {
-	if !client.connected {
+	if !client.IsOnline() {
 		return nil, errDiskNotFound
 	}
 	if values == nil {
@@ -141,10 +147,13 @@ func (client *storageRESTClient) call(method string, values url.Values, body io.
 	respBody, err = client.restClient.Call(method, values, body, length)
 	if err == nil {
 		return respBody, nil
+	} else if err == rest.ErrServerShuttingDown {
+		atomic.StoreInt32(&client.connected, 0)
+		return nil, errDiskNotFound
 	}
 	client.lastError = err
 	if isNetworkError(err) {
-		client.connected = false
+		atomic.StoreInt32(&client.connected, 0)
 	}
 
 	return nil, toStorageErr(err)
@@ -157,7 +166,7 @@ func (client *storageRESTClient) String() string {
 
 // IsOnline - returns whether RPC client failed to connect or not.
 func (client *storageRESTClient) IsOnline() bool {
-	return client.connected
+	return atomic.LoadInt32(&client.connected) == 1 && client.nodeOnline()
 }
 
 // LastError - returns the network error if any.
@@ -369,6 +378,9 @@ func (client *storageRESTClient) RenameFile(srcVolume, srcPath, dstVolume, dstPa
 
 // Gets peer storage server's instanceID - to be used with every REST call for validation.
 func (client *storageRESTClient) getInstanceID() (err error) {
+	if !client.nodeOnline() {
+		return errDiskNotFound
+	}
 	respBody, err := client.restClient.Call(storageRESTMethodGetInstanceID, nil, nil, -1)
 	if err != nil {
 		return err
@@ -385,7 +397,7 @@ func (client *storageRESTClient) getInstanceID() (err error) {
 
 // Close - marks the client as closed.
 func (client *storageRESTClient) Close() error {
-	client.connected = false
+	atomic.StoreInt32(&client.connected, 0)
 	client.restClient.Close()
 	return nil
 }
@@ -416,11 +428,16 @@ func newStorageRESTClient(endpoint Endpoint) (*storageRESTClient, error) {
 		}
 	}
 
-	restClient, err := rest.NewClient(serverURL, tlsConfig, rest.DefaultRESTTimeout, newAuthToken)
+	trFn := newCustomHTTPTransport(tlsConfig, rest.DefaultRESTTimeout, rest.DefaultRESTTimeout)
+	restClient, err := rest.NewClient(serverURL, trFn, newAuthToken)
+	// restClient, err := rest.NewClient(serverURL, tlsConfig, rest.DefaultRESTTimeout, newAuthToken)
 	if err != nil {
 		return nil, err
 	}
-	client := &storageRESTClient{endpoint: endpoint, restClient: restClient, connected: true}
-	client.connected = client.getInstanceID() == nil
+	client := &storageRESTClient{endpoint: endpoint, restClient: restClient, connected: 0}
+	client.nodeOnline = globalNodeMonitor.NodeOnlineFn(endpoint.Host)
+	if err := client.getInstanceID(); err == nil {
+		client.connected = 1
+	}
 	return client, nil
 }
