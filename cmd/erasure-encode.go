@@ -33,7 +33,7 @@ type parallelWriter struct {
 }
 
 // Write writes data to writers in parallel.
-func (p *parallelWriter) Write(ctx context.Context, blocks [][]byte) error {
+func (p *parallelWriter) Write(ctx context.Context, blocks [][]byte) (bool, error) {
 	var wg sync.WaitGroup
 
 	for i := range p.writers {
@@ -53,6 +53,7 @@ func (p *parallelWriter) Write(ctx context.Context, blocks [][]byte) error {
 	}
 	wg.Wait()
 
+	allWritten := true
 	// If nilCount >= p.writeQuorum, we return nil. This is because HealFile() uses
 	// CreateFile with p.writeQuorum=1 to accommodate healing of single disk.
 	// i.e if we do no return here in such a case, reduceWriteQuorumErrs() would
@@ -61,28 +62,32 @@ func (p *parallelWriter) Write(ctx context.Context, blocks [][]byte) error {
 	for _, err := range p.errs {
 		if err == nil {
 			nilCount++
+		} else {
+			allWritten = false
 		}
 	}
 	if nilCount >= p.writeQuorum {
-		return nil
+		return allWritten, nil
 	}
-	return reduceWriteQuorumErrs(ctx, p.errs, objectOpIgnoredErrs, p.writeQuorum)
+	return allWritten, reduceWriteQuorumErrs(ctx, p.errs, objectOpIgnoredErrs, p.writeQuorum)
 }
 
 // Encode reads from the reader, erasure-encodes the data and writes to the writers.
-func (e *Erasure) Encode(ctx context.Context, src io.Reader, writers []io.Writer, buf []byte, quorum int) (total int64, err error) {
+func (e *Erasure) Encode(ctx context.Context, src io.Reader, writers []io.Writer, buf []byte, quorum int) (total int64, allWritten bool, err error) {
 	writer := &parallelWriter{
 		writers:     writers,
 		writeQuorum: quorum,
 		errs:        make([]error, len(writers)),
 	}
 
+	allWritten = true
+
 	for {
 		var blocks [][]byte
 		n, err := io.ReadFull(src, buf)
 		if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
 			logger.LogIf(ctx, err)
-			return 0, err
+			return 0, false, err
 		}
 		eof := err == io.EOF || err == io.ErrUnexpectedEOF
 		if n == 0 && total != 0 {
@@ -93,17 +98,21 @@ func (e *Erasure) Encode(ctx context.Context, src io.Reader, writers []io.Writer
 		blocks, err = e.EncodeData(ctx, buf[:n])
 		if err != nil {
 			logger.LogIf(ctx, err)
-			return 0, err
+			return 0, false, err
 		}
 
-		if err = writer.Write(ctx, blocks); err != nil {
+		aw, err := writer.Write(ctx, blocks)
+		if err != nil {
 			logger.LogIf(ctx, err)
-			return 0, err
+			return 0, false, err
+		}
+		if !aw {
+			allWritten = false
 		}
 		total += int64(n)
 		if eof {
 			break
 		}
 	}
-	return total, nil
+	return total, allWritten, nil
 }

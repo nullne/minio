@@ -29,6 +29,12 @@ func newObjectLayerFn() (layer ObjectLayer) {
 	return
 }
 
+func newObjectLayerWithoutSafeModeFn() ObjectLayer {
+	globalObjLayerMutex.Lock()
+	defer globalObjLayerMutex.Unlock()
+	return globalObjectAPI
+}
+
 func newCacheObjectsFn() CacheObjectLayer {
 	return globalCacheObjectAPI
 }
@@ -42,7 +48,10 @@ func registerDistXLRouters(router *mux.Router, endpoints EndpointList) {
 	registerPeerRESTHandlers(router)
 
 	// Register distributed namespace lock.
-	registerDistNSLockRouter(router)
+	// registerDistNSLockRouter(router)
+
+	// Register distributed namespace lock routers.
+	registerLockRESTHandlers(router, endpoints)
 
 }
 

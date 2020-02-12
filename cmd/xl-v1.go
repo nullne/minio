@@ -22,6 +22,7 @@ import (
 
 	"github.com/minio/minio/cmd/logger"
 	"github.com/minio/minio/pkg/bpool"
+	"github.com/minio/minio/pkg/dsync"
 )
 
 // XL constants.
@@ -41,6 +42,9 @@ type xlObjects struct {
 	// getDisks returns list of storageAPIs.
 	getDisks func() []StorageAPI
 
+	// getLockers returns list of remote and local lockers.
+	getLockers func() []dsync.NetLocker
+
 	// Byte pools used for temporary i/o buffers.
 	bp *bpool.BytePoolCap
 
@@ -49,6 +53,11 @@ type xlObjects struct {
 
 	// TODO: ListObjects pool management, should be removed in future.
 	listPool *treeWalkPool
+}
+
+// NewNSLock - initialize a new namespace RWLocker instance.
+func (xl xlObjects) NewNSLock(ctx context.Context, bucket string, object string) RWLocker {
+	return xl.nsMutex.NewNSLock(ctx, xl.getLockers, bucket, object)
 }
 
 // Shutdown function for object storage interface.

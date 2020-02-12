@@ -1,5 +1,5 @@
 /*
- * Minio Cloud Storage, (C) 2017 Minio, Inc.
+ * MinIO Cloud Storage, (C) 2019 MinIO, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,19 +19,18 @@ package cmd
 import (
 	"testing"
 
-	"github.com/minio/dsync"
-	xnet "github.com/minio/minio/pkg/net"
+	"github.com/minio/minio/pkg/dsync"
 )
 
 // Tests lock rpc client.
-func TestLockRPCClient(t *testing.T) {
-	host, err := xnet.ParseHost("localhost:9000")
+func TestLockRESTlient(t *testing.T) {
+	endpoint, err := NewEndpoint("http://localhost:9000")
 	if err != nil {
 		t.Fatalf("unexpected error %v", err)
 	}
-	lkClient, err := NewLockRPCClient(host)
-	if err != nil {
-		t.Fatalf("unexpected error %v", err)
+	lkClient := newlockRESTClient(endpoint)
+	if lkClient.connected == 0 {
+		t.Fatalf("unexpected error. connection failed")
 	}
 
 	// Attempt all calls.
@@ -53,15 +52,5 @@ func TestLockRPCClient(t *testing.T) {
 	_, err = lkClient.Unlock(dsync.LockArgs{})
 	if err == nil {
 		t.Fatal("Expected for Unlock to fail")
-	}
-
-	_, err = lkClient.ForceUnlock(dsync.LockArgs{})
-	if err == nil {
-		t.Fatal("Expected for ForceUnlock to fail")
-	}
-
-	_, err = lkClient.Expired(dsync.LockArgs{})
-	if err == nil {
-		t.Fatal("Expected for Expired to fail")
 	}
 }

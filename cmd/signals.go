@@ -20,6 +20,7 @@ import (
 	"context"
 	"os"
 	"strings"
+	"sync/atomic"
 
 	"github.com/minio/minio/cmd/logger"
 )
@@ -40,7 +41,10 @@ func handleSignals() {
 	}
 
 	stopProcess := func() bool {
+		atomic.StoreUint32(&globalEngineStarted, 0)
 		var err, oerr error
+
+		globalBackgroundHealing.close()
 
 		if globalNotificationSys != nil {
 			globalNotificationSys.RemoveAllRemoteTargets()
@@ -59,6 +63,8 @@ func handleSignals() {
 			oerr = objAPI.Shutdown(context.Background())
 			logger.LogIf(context.Background(), oerr)
 		}
+
+		globalNodeMonitor.Close()
 
 		if globalFileVolumeEnabled {
 			err = closeFileVolume()

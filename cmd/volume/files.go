@@ -36,6 +36,10 @@ type files struct {
 	createFileError error
 	createFileLock  sync.RWMutex
 	flock           fileLock
+
+	wg     sync.WaitGroup
+	done   chan struct{}
+	closed int32 //closed
 }
 
 func (f *files) setCreateFileError(e error) {
@@ -74,19 +78,22 @@ func newFiles(ctx context.Context, dir string) (fs *files, err error) {
 	fs.ch = make(chan request)
 	fs.chWritableFile = make(chan *file)
 	fs.flock = fl
+	fs.done = make(chan struct{})
 
 	if err := fs.loadFiles(); err != nil {
 		return nil, err
 	}
 
-	go fs.prepareFileToWrite(ctx)
+	fs.wg.Add(1)
+	go fs.prepareFileToWrite()
 
 	// wait the first wriable file
 	if _, err := fs.getFileToWrite(ctx); err != nil {
 		logger.LogIf(ctx, err)
 	}
 
-	go fs.writeWorker(ctx)
+	fs.wg.Add(1)
+	go fs.writeWorker()
 	return fs, nil
 }
 
@@ -131,12 +138,13 @@ type response struct {
 	err  error
 }
 
-func (fs *files) prepareFileToWrite(ctx context.Context) {
+func (fs *files) prepareFileToWrite() {
+	defer fs.wg.Done()
 	// defer close(fs.chWritableFile)
 	var cur int32 = -1
 	for {
 		select {
-		case <-ctx.Done():
+		case <-fs.done:
 			return
 		default:
 		}
@@ -157,7 +165,7 @@ func (fs *files) prepareFileToWrite(ctx context.Context) {
 
 		wr, err := createFile(fs.dir, fid)
 		if err != nil {
-			logger.LogIf(ctx, err)
+			logger.LogIf(context.Background(), err)
 			fs.setCreateFileError(err)
 			// if the error is no space, no need to retry
 			if isSysErrNoSpace(err) {
@@ -170,7 +178,7 @@ func (fs *files) prepareFileToWrite(ctx context.Context) {
 		if files[fid] == nil {
 			f, err := openFileToRead(wr.path)
 			if err != nil {
-				logger.LogIf(ctx, err)
+				logger.LogIf(context.Background(), err)
 				fs.setCreateFileError(err)
 				time.Sleep(10 * time.Second)
 				continue
@@ -184,7 +192,7 @@ func (fs *files) prepareFileToWrite(ctx context.Context) {
 		select {
 		case fs.chWritableFile <- wr:
 			cur = wr.id
-		case <-ctx.Done():
+		case <-fs.done:
 			wr.close()
 			return
 		}
@@ -269,13 +277,14 @@ func (fs *files) write(data []byte) (FileInfo, error) {
 	return resp.info, resp.err
 }
 
-func (fs *files) writeWorker(ctx context.Context) {
+func (fs *files) writeWorker() {
+	defer fs.wg.Done()
 	for {
 		select {
-		case <-ctx.Done():
+		case <-fs.done:
 			return
 		case r := <-fs.ch:
-			info, err := fs.writeData(ctx, r.data)
+			info, err := fs.writeData(context.Background(), r.data)
 			r.resp <- response{
 				info: info,
 				err:  err,
@@ -302,12 +311,22 @@ func (fs *files) writeData(ctx context.Context, data []byte) (FileInfo, error) {
 }
 
 func (fs *files) close() error {
+	close(fs.done)
+	fs.wg.Wait()
 	files := fs.files.Load().([]*file)
 	for _, f := range files {
 		if f == nil {
 			continue
 		}
 		logger.LogIf(context.Background(), f.close())
+	}
+	logger.LogIf(context.Background(), fs.writableFile.close())
+	select {
+	case f := <-fs.chWritableFile:
+		if f != nil {
+			logger.LogIf(context.Background(), f.close())
+		}
+	default:
 	}
 	return fs.flock.release()
 }

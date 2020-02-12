@@ -24,10 +24,10 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync/atomic"
 	"syscall"
 
 	"github.com/minio/cli"
-	"github.com/minio/dsync"
 	xhttp "github.com/minio/minio/cmd/http"
 	"github.com/minio/minio/cmd/logger"
 	"github.com/minio/minio/pkg/certs"
@@ -229,17 +229,6 @@ func serverMain(ctx *cli.Context) {
 		}
 	}
 
-	if !globalCLIContext.Quiet {
-		// Check for new updates from dl.minio.io.
-		mode := globalMinioModeFS
-		if globalIsDistXL {
-			mode = globalMinioModeDistXL
-		} else if globalIsXL {
-			mode = globalMinioModeXL
-		}
-		checkUpdate(mode)
-	}
-
 	// FIXME: This code should be removed in future releases and we should have mandatory
 	// check for ENVs credentials under distributed setup. Until all users migrate we
 	// are intentionally providing backward compatibility.
@@ -274,14 +263,18 @@ func serverMain(ctx *cli.Context) {
 
 	// Set nodes for dsync for distributed setup.
 	if globalIsDistXL {
-		globalDsync, err = dsync.New(newDsyncNodes(globalEndpoints))
+		// globalDsync, err = dsync.New(newDsyncNodes(globalEndpoints))
+		// if err != nil {
+		// 	logger.Fatal(err, "Unable to initialize distributed locking on %s", globalEndpoints)
+		// }
+		globalNodeMonitor, err = NewNodeMonitor(globalEndpoints)
 		if err != nil {
-			logger.Fatal(err, "Unable to initialize distributed locking on %s", globalEndpoints)
+			logger.Fatal(err, "Unable to initialize node monitor on %s", globalEndpoints)
 		}
 	}
 
 	// Initialize name space lock.
-	initNSLock(globalIsDistXL)
+	// initNSLock(globalIsDistXL)
 
 	// Init global heal state
 	initAllHealState(globalIsXL)
@@ -367,6 +360,10 @@ func serverMain(ctx *cli.Context) {
 		logger.Fatal(errors.New("Invalid KMS configuration"), "auto-encryption is enabled but server does not support encryption")
 	}
 
+	if globalIsXL {
+		initBackgroundHealing(globalEndpoints)
+	}
+
 	globalObjLayerMutex.Lock()
 	globalObjectAPI = newObject
 	globalObjLayerMutex.Unlock()
@@ -377,6 +374,7 @@ func serverMain(ctx *cli.Context) {
 	// Set uptime time after object layer has initialized.
 	globalBootTime = UTCNow()
 
+	atomic.StoreUint32(&globalEngineStarted, 1)
 	logger.Info("engine started")
 	handleSignals()
 }

@@ -205,11 +205,23 @@ func newPosix(path string) (*posix, error) {
 		if err != nil {
 			return nil, err
 		}
+		var wg sync.WaitGroup
+		errCh := make(chan error, len(vols))
+
 		for _, v := range vols {
 			if isMinioMetaBucketName(v.Name) {
 				continue
 			}
-			if err := addFileVolume(filepath.Join(p.diskPath, v.Name)); err != nil {
+			wg.Add(1)
+			go func(name string) {
+				defer wg.Done()
+				errCh <- addFileVolume(filepath.Join(p.diskPath, name))
+			}(v.Name)
+		}
+		wg.Wait()
+		close(errCh)
+		for err := range errCh {
+			if err != nil {
 				return nil, err
 			}
 		}

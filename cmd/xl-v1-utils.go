@@ -79,6 +79,15 @@ func reduceReadQuorumErrs(ctx context.Context, errs []error, ignoredErrs []error
 	return reduceQuorumErrs(ctx, errs, ignoredErrs, readQuorum, errXLReadQuorum)
 }
 
+func missingParts(errs []error) bool {
+	for _, err := range errs {
+		if err == errFileNotFound {
+			return true
+		}
+	}
+	return false
+}
+
 // reduceWriteQuorumErrs behaves like reduceErrs but only for returning
 // values of maximally occurring errors validated against writeQuorum.
 func reduceWriteQuorumErrs(ctx context.Context, errs []error, ignoredErrs []error, writeQuorum int) (maxErr error) {

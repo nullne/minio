@@ -151,6 +151,8 @@ func (xl xlObjects) putObjectFast(ctx context.Context, bucket string, object str
 		buffer = buffer[:xlMeta.Erasure.BlockSize]
 	}
 
+	allWritten := true
+
 	// Read data and split into parts - similar to multipart mechanism
 	for partIdx := 1; ; partIdx++ {
 		// Compute part name
@@ -184,13 +186,17 @@ func (xl xlObjects) putObjectFast(ctx context.Context, bucket string, object str
 			writers[i] = newBitrotWriter(disk, bucket, pathJoin(object, partName), erasure.ShardFileSize(curPartSize), DefaultBitrotAlgorithm, erasure.ShardSize())
 		}
 
-		n, erasureErr := erasure.Encode(ctx, curPartReader, writers, buffer, erasure.dataBlocks+1)
+		n, aw, erasureErr := erasure.Encode(ctx, curPartReader, writers, buffer, erasure.dataBlocks+1)
 		// Note: we should not be defer'ing the following closeBitrotWriters() call as we are inside a for loop i.e if we use defer, we would accumulate a lot of open files by the time
 		// we return from this function.
 		closeBitrotWriters(writers)
 		if erasureErr != nil {
 			return ObjectInfo{}, toObjectErr(erasureErr, bucket, object)
 			// return ObjectInfo{}, toObjectErr(erasureErr, minioMetaTmpBucket, tempErasureObj)
+		}
+
+		if !aw {
+			allWritten = false
 		}
 
 		// Should return IncompleteBody{} error when reader has fewer bytes
@@ -273,6 +279,10 @@ func (xl xlObjects) putObjectFast(ctx context.Context, bucket string, object str
 		ContentType:     xlMeta.Meta["content-type"],
 		ContentEncoding: xlMeta.Meta["content-encoding"],
 		UserDefined:     xlMeta.Meta,
+	}
+
+	if !allWritten {
+		globalBackgroundHealing.queueHealObject(bucket, object)
 	}
 
 	// Success, return object info.

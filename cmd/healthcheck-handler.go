@@ -17,11 +17,13 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"os"
 	"runtime"
 	"strconv"
+	"sync/atomic"
 
 	"github.com/minio/minio/cmd/logger"
 )
@@ -49,6 +51,10 @@ func init() {
 // and temporarily unable to serve. In a orchestrated setup like Kubernetes, containers reporting
 // that they are not ready do not receive traffic through Kubernetes Services.
 func ReadinessCheckHandler(w http.ResponseWriter, r *http.Request) {
+	if atomic.LoadUint32(&globalEngineStarted) != 1 {
+		writeErrorResponse(context.Background(), w, errorCodes.ToAPIErr(ErrServerNotInitialized), r.URL, guessIsBrowserReq(r))
+		return
+	}
 	if err := goroutineCountCheck(minioHealthGoroutineThreshold); err != nil {
 		writeResponse(w, http.StatusServiceUnavailable, nil, mimeNone)
 		return
