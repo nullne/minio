@@ -114,11 +114,17 @@ func (c *nodeMonitorClient) probeEvery(done chan struct{}, wg *sync.WaitGroup, i
 	}
 
 	var alive bool
+	timer := time.NewTimer(interval)
 	for {
-		timer := time.NewTimer(interval)
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+		timer.Reset(interval)
 		select {
 		case alive = <-ch:
-			timer.Stop()
 		case <-timer.C:
 			//timeout
 			alive = false
@@ -153,7 +159,7 @@ func (c *nodeMonitorClient) probe(ctx context.Context, limiter *rate.Limiter, al
 			// logger.Info("failed to probe host %s: %s", c.url, err.Error())
 			continue
 		}
-		defer resp.Body.Close()
+		resp.Body.Close()
 		alive <- resp.StatusCode == http.StatusOK
 	}
 }
