@@ -310,6 +310,20 @@ func (fs *files) writeData(ctx context.Context, data []byte) (FileInfo, error) {
 	}, nil
 }
 
+func (fs *files) readOnlyFiles() (fids []int32) {
+	files := fs.files.Load().([]*file)
+	for _, f := range files {
+		if f == nil {
+			continue
+		}
+		if !f.isReadOnly() {
+			continue
+		}
+		fids = append(fids, f.id)
+	}
+	return
+}
+
 func (fs *files) close() error {
 	close(fs.done)
 	fs.wg.Wait()
@@ -329,6 +343,22 @@ func (fs *files) close() error {
 	default:
 	}
 	return fs.flock.release()
+}
+
+func (fs *files) deleteFile(fid uint32) error {
+	files := fs.files.Load().([]*file)
+	if len(files) <= int(fid) {
+		return os.ErrNotExist
+	}
+	file := files[fid]
+	if file == nil {
+		return os.ErrNotExist
+	}
+	if err := file.remove(); err != nil {
+		return err
+	}
+	// @TODO how to delete from files
+	return nil
 }
 
 func (fs *files) remove() error {

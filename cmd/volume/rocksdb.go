@@ -2,6 +2,7 @@ package volume
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"math/rand"
@@ -617,6 +618,53 @@ func (db *rocksDBIndex) ListN(keyPrefix string, count int) ([]string, error) {
 		entries = append(entries, k)
 	}
 	return entries, nil
+}
+
+func (db *rocksDBIndex) ScanAll(ctx context.Context, filter func(s string) bool) (chan FileInfo, chan error) {
+	ch := make(chan FileInfo, 1000)
+	ech := make(chan error, 1)
+	go func(ctx context.Context) {
+		defer close(ch)
+		defer close(ech)
+		ro := gorocksdb.NewDefaultReadOptions()
+		ro.SetFillCache(false)
+		defer ro.Destroy()
+		it := db.db.NewIterator(ro)
+		defer it.Close()
+
+		it.SeekToFirst()
+		breaks := false
+
+		for it = it; it.Valid() && !breaks; it.Next() {
+			key := it.Key()
+			if filter(string(key.Data())) {
+				var fi FileInfo
+				fi.fileName = string(key.Data())
+				value := it.Value()
+				err := fi.UnmarshalBinary(value.Data())
+				if err != nil {
+					select {
+					case ech <- err:
+					case <-ctx.Done():
+						breaks = true
+					}
+				} else {
+					select {
+					case ch <- fi:
+					case <-ctx.Done():
+						breaks = true
+					}
+				}
+				value.Free()
+			}
+			key.Free()
+		}
+		if err := it.Err(); err != nil {
+			ech <- err
+			return
+		}
+	}(ctx)
+	return ch, ech
 }
 
 func (db *rocksDBIndex) Close() error {
