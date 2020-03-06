@@ -61,6 +61,7 @@ const (
 	mgmtClientToken              = "clientToken"
 	mgmtForceStart               = "forceStart"
 	mgmtForceStop                = "forceStop"
+	mgmtOperation                = "operation"
 )
 
 var (
@@ -863,6 +864,61 @@ func (a adminAPIHandlers) HealObjectHandler(w http.ResponseWriter, r *http.Reque
 	}
 	writeSuccessResponseJSON(w, bs)
 	return
+}
+
+func extractDiskMaintenanceParams(r *http.Request) (operation string, rate float64, timeRange string) {
+	vars := mux.Vars(r)
+	operation = vars[string(mgmtOperation)]
+
+	values := r.URL.Query()
+	if srate := values["rate"]; len(srate) == 0 {
+		rate = 0.9
+	} else {
+		var err error
+		rate, err = strconv.ParseFloat(srate[0], 32)
+		if err != nil {
+			rate = 0.9
+		}
+	}
+	if vs := values["time-range"]; len(vs) != 0 {
+		timeRange = vs[0]
+	}
+	return
+}
+
+func (a adminAPIHandlers) DiskMaintenanceHandler(w http.ResponseWriter, r *http.Request) {
+
+	operation, rate, timeRange := extractDiskMaintenanceParams(r)
+
+	switch operation {
+	case "start":
+		if err := globalFileVolumeMaintenance.Start(rate, timeRange); err != nil {
+			writeErrorResponseJSON(context.Background(), w, toAdminAPIErr(context.Background(), err), r.URL)
+			return
+		}
+		writeSuccessNoContent(w)
+		return
+	case "suspend":
+	case "finish":
+		if err := globalFileVolumeMaintenance.Finish(); err != nil {
+			writeErrorResponseJSON(context.Background(), w, toAdminAPIErr(context.Background(), err), r.URL)
+			return
+		}
+		writeSuccessNoContent(w)
+		return
+	case "status":
+		status := globalFileVolumeMaintenance.Status()
+		bs, err := json.Marshal(status)
+		if err != nil {
+			writeErrorResponseJSON(context.Background(), w, toAdminAPIErr(context.Background(), err), r.URL)
+			return
+		}
+		writeSuccessResponseJSON(w, bs)
+		return
+	default:
+		writeErrorResponseHeadersOnly(w, errorCodes[ErrBadRequest])
+		return
+	}
 }
 
 // GetConfigHandler - GET /minio/admin/v1/config

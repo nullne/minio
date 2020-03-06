@@ -65,6 +65,9 @@ func registerAdminRouter(router *mux.Router, enableConfigOps, enableIAMOps bool)
 		adminV1Router.Methods(http.MethodPatch).Path("/heal/{bucket}/{object:.*}").HandlerFunc(httpTraceAll(adminAPI.HealObjectHandler))
 		/// Health operations
 
+		// Disk Maintenance
+		adminV1Router.Methods(http.MethodPost).Path("/maintenance/{operation:start|finish|suspend|status}").HandlerFunc(httpTraceAll(adminAPI.DiskMaintenanceHandler))
+
 	}
 	// Performance command - return performance details based on input type
 	adminV1Router.Methods(http.MethodGet).Path("/performance").HandlerFunc(httpTraceAll(adminAPI.PerfInfoHandler)).Queries("perfType", "{perfType:.*}")

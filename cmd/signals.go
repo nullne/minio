@@ -66,6 +66,8 @@ func handleSignals() {
 
 		globalNodeMonitor.Close()
 
+		globalFileVolumeMaintenance.Close()
+
 		if globalFileVolumeEnabled {
 			err = closeFileVolume()
 			logger.LogIf(context.Background(), err)
