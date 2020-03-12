@@ -2,6 +2,7 @@ module github.com/minio/minio
 
 require (
 	cloud.google.com/go v0.46.3
+	cloud.google.com/go/storage v1.0.0
 	github.com/Azure/azure-sdk-for-go v27.0.0+incompatible
 	github.com/Azure/go-autorest v11.7.0+incompatible
 	github.com/alecthomas/participle v0.2.1

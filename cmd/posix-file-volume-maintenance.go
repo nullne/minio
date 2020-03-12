@@ -187,18 +187,18 @@ func (m *fileVolumeMaintenance) run(ctx context.Context, rate float64, timeRange
 		timer.Stop()
 
 		// dump object list
-		logger.Info("dumping objects list of %s", key.(string))
-		m.updateVolumes(key.(string), VolumeMaintenanceStatusDumping)
-		if err := value.(*fv.Volume).DumpListToMaintain(ctx, rate); err != nil {
-			logger.Info("failed to dump objects list of %s: %s", key.(string), err.Error())
-			m.updateVolumes(key.(string), VolumeMaintenanceStatusFailed)
-			m.updateError(err)
-			return false
-		}
+		// logger.Info("dumping objects list of %s", key.(string))
+		// m.updateVolumes(key.(string), VolumeMaintenanceStatusDumping)
+		// if err := value.(*fv.Volume).DumpListToMaintain(ctx, rate); err != nil {
+		// 	logger.Info("failed to dump objects list of %s: %s", key.(string), err.Error())
+		// 	m.updateVolumes(key.(string), VolumeMaintenanceStatusFailed)
+		// 	m.updateError(err)
+		// 	return false
+		// }
 		// compact
 		logger.Info("compacting  %s", key.(string))
 		m.updateVolumes(key.(string), VolumeMaintenanceStatusCompacting)
-		if err := value.(*fv.Volume).Maintain(ctx); err != nil {
+		if err := value.(*fv.Volume).Maintain(ctx, rate); err != nil {
 			logger.Info("failed to compact  %s: %s", key.(string), err.Error())
 			m.updateVolumes(key.(string), VolumeMaintenanceStatusFailed)
 			m.updateError(err)
@@ -232,17 +232,17 @@ func (m *fileVolumeMaintenance) Finish() error {
 		cancel()
 	}
 
-	var err error
-	globalFileVolumes.volumes.Range(func(key, value interface{}) bool {
-		if e := value.(*fv.Volume).CleanMaintain(); e != nil {
-			err = e
-			return false
-		}
-		return true
-	})
-	if err != nil {
-		return err
-	}
+	// var err error
+	// globalFileVolumes.volumes.Range(func(key, value interface{}) bool {
+	// 	if e := value.(*fv.Volume).CleanMaintain(); e != nil {
+	// 		err = e
+	// 		return false
+	// 	}
+	// 	return true
+	// })
+	// if err != nil {
+	// 	return err
+	// }
 
 	m.lock.Lock()
 	m.detail.StartTime = time.Time{}
