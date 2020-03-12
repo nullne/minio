@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/binary"
+	"flag"
 	"fmt"
 	"hash/fnv"
 	"io/ioutil"
@@ -22,6 +23,10 @@ import (
 	"github.com/pingcap/go-ycsb/pkg/ycsb"
 	"golang.org/x/time/rate"
 	"gopkg.in/bufio.v1"
+)
+
+var (
+	tmpDir = flag.String("tmp-dir", "/tmp", "")
 )
 
 func TestVolumeAndFileConcurrently(t *testing.T) {
@@ -292,83 +297,56 @@ func TestDirOperation(t *testing.T) {
 }
 
 func TestVolumeMaintain(t *testing.T) {
-	// volume.MaxFileSize = 4 << 20
-	// size := int64(10 * 1024)
-	// jobs := 32
-	// objects := int(volume.MaxFileSize/size/int64(jobs)) + 10 // to generate a new file so that 0.data can be rewritten
-	// dataMD5 := make([]string, jobs)
-	//
-	// dir, _ := ioutil.TempDir("/tmp", "volume_")
+	volume.MaxFileSize = 4 << 20
+
+	dir, _ := ioutil.TempDir(*tmpDir, "volume_")
 	// fmt.Println(dir)
-	// // defer os.RemoveAll(dir)
-	//
-	// v, err := volume.NewVolume(context.Background(), dir)
-	// if err != nil {
-	// 	t.Error(err)
-	// 	return
-	// }
-	// defer v.Close()
-	// var wg sync.WaitGroup
-	// for j := 0; j < jobs; j++ {
-	// 	wg.Add(1)
-	// 	data := make([]byte, size)
-	// 	rand.Read(data)
-	// 	dataMD5[j] = fmt.Sprintf("%x", md5.Sum(data))
-	// 	go func(j int) {
-	// 		defer wg.Done()
-	// 		for i := 0; i < objects; i++ {
-	// 			r := bufio.NewBuffer(data)
-	// 			key := fmt.Sprintf("key-%d-%d", i, j)
-	// 			err := v.WriteAll(key, size, r)
-	// 			if err != nil {
-	// 				t.Error(err)
-	// 				continue
-	// 			}
-	// 		}
-	// 	}(j)
-	// }
-	// wg.Wait()
-	// before := time.Now()
-	// if err := v.DumpListToMaintain(context.TODO(), 10); err != nil {
-	// 	t.Error(err)
-	// 	return
-	// }
-	//
-	// // if err := v.DumpListToMaintain(context.TODO(), 1); err != volume.ErrUnderMaintenance {
-	// // 	t.Error(err)
-	// // 	return
-	// // }
-	//
-	// if err := v.Maintain(context.TODO()); err != nil {
-	// 	t.Error(err)
-	// 	return
-	// }
-	// fmt.Println("total: ", time.Since(before))
-	//
-	// //
-	// for j := 0; j < jobs; j++ {
-	// 	wg.Add(1)
-	// 	go func(j int) {
-	// 		defer wg.Done()
-	// 		for i := 0; i < objects; i++ {
-	// 			key := fmt.Sprintf("key-%d-%d", i, j)
-	// 			data, err := v.ReadAll(key)
-	// 			if err != nil {
-	// 				panic(err)
-	// 			}
-	// 			if dataMD5[j] != fmt.Sprintf("%x", md5.Sum(data)) {
-	// 				panic(errors.New("invalid data"))
-	// 			}
-	// 		}
-	// 	}(j)
-	// }
-	// wg.Wait()
+	defer os.RemoveAll(dir)
+	v, err := volume.NewVolume(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := v.Remove(); err != nil {
+			t.Error(err)
+		}
+	}()
+
+	concurrent := 10
+	recordCount := int64(100000)
+
+	p := newObjectProp1()
+
+	// step 1: prefill data
+	if err := prefill(v, concurrent, int(recordCount), p); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := context.Background()
+	go func() {
+		time.Sleep(10 * time.Millisecond)
+		if err := v.Maintain(ctx, 2); err != volume.ErrUnderMaintenance {
+			t.Error("shouldn't run")
+			return
+		}
+	}()
+
+	if err := v.Maintain(ctx, 2); err != nil {
+		t.Error(err)
+		return
+	}
+
+	// lat step : verify data
+	if err := verifyAll(v, concurrent, recordCount, p); err != nil {
+		t.Error(err)
+	}
 }
 
+// read, write, delete, maintain concurrently
 func TestVolumeAll(t *testing.T) {
 	volume.MaxFileSize = 4 << 20
 
-	dir, _ := ioutil.TempDir("/tmp", "volume_")
+	dir, _ := ioutil.TempDir(*tmpDir, "volume_")
 	// fmt.Println(dir)
 	defer os.RemoveAll(dir)
 	v, err := volume.NewVolume(context.Background(), dir)
@@ -386,7 +364,7 @@ func TestVolumeAll(t *testing.T) {
 	recordCount := int64(100000)
 	insertCount := recordCount - insertStart - 1
 	operationCount := int64(60000)
-	qps := 1000
+	qps := 10000
 
 	limiter := rate.NewLimiter(rate.Every(time.Second/time.Duration(qps)), 10)
 
@@ -404,7 +382,6 @@ func TestVolumeAll(t *testing.T) {
 	operationChooser.Add(0.5, opReadAll)
 	operationChooser.Add(0.5, opWriteAll)
 
-	r := mrand.New(mrand.NewSource(int64(time.Now().Nanosecond())))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -415,6 +392,7 @@ func TestVolumeAll(t *testing.T) {
 		go func(ctx context.Context, i int) {
 			defer wg.Done()
 			defer cancel()
+			r := mrand.New(mrand.NewSource(int64(time.Now().Nanosecond())))
 			var err error
 			for j := int64(0); j < operationCount; j++ {
 				if err := limiter.Wait(ctx); err != nil {

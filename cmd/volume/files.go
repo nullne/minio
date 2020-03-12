@@ -29,8 +29,8 @@ type fileLock interface {
 
 type files struct {
 	dir             string
-	files           atomic.Value
-	mu              sync.RWMutex
+	files           atomic.Value // []*file
+	mu              sync.Mutex   //make sure delete and create file won't happen at the same time
 	ch              chan request
 	writableFile    *file
 	chWritableFile  chan *file
@@ -89,6 +89,7 @@ func newFiles(ctx context.Context, dir string) (fs *files, err error) {
 	go fs.prepareFileToWrite()
 
 	// wait the first wriable file
+	time.Sleep(time.Millisecond * 10)
 	if _, err := fs.getFileToWrite(ctx); err != nil {
 		logger.LogIf(ctx, err)
 	}
@@ -150,45 +151,16 @@ func (fs *files) prepareFileToWrite() {
 		default:
 		}
 
-		files := fs.files.Load().([]*file)
-		var fid int32 = -1
-		// loop existed files
-		for i, f := range files {
-			if (f == nil || !f.isReadOnly()) && int32(i) != cur {
-				fid = int32(i)
-				break
-			}
-		}
-		if fid < 0 {
-			fid = fs.generateNextID()
-			files = fs.files.Load().([]*file)
-		}
-
-		wr, err := createFile(fs.dir, fid)
+		wr, err := fs.createFile(cur)
+		fs.setCreateFileError(err)
 		if err != nil {
-			logger.LogIf(context.Background(), err)
-			fs.setCreateFileError(err)
-			// if the error is no space, no need to retry
 			if isSysErrNoSpace(err) {
 				return
 			}
+			logger.LogIf(context.Background(), err)
 			time.Sleep(10 * time.Second)
 			continue
 		}
-
-		if files[fid] == nil {
-			f, err := openFileToRead(wr.path)
-			if err != nil {
-				logger.LogIf(context.Background(), err)
-				fs.setCreateFileError(err)
-				time.Sleep(10 * time.Second)
-				continue
-			}
-			files[fid] = f
-		}
-
-		fs.files.Store(files)
-		fs.setCreateFileError(nil)
 
 		select {
 		case fs.chWritableFile <- wr:
@@ -198,20 +170,6 @@ func (fs *files) prepareFileToWrite() {
 			return
 		}
 	}
-}
-
-func (fs *files) generateNextID() int32 {
-	files := fs.files.Load().([]*file)
-	for i, f := range files {
-		if f == nil {
-			return int32(i)
-		}
-	}
-
-	// create one slot for next file
-	files = append(files, nil)
-	fs.files.Store(files)
-	return int32(len(files) - 1)
 }
 
 func (fs *files) getFileToWrite(ctx context.Context) (*file, error) {
@@ -325,19 +283,66 @@ func (fs *files) readOnlyFiles() (fids []int32) {
 	return
 }
 
+func (fs *files) createFile(cur int32) (*file, error) {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+
+	files := fs.files.Load().([]*file)
+	var fid int32 = -1
+	// loop existed files
+	for i, f := range files {
+		if (f == nil || !f.isReadOnly()) && int32(i) != cur {
+			fid = int32(i)
+			break
+		}
+	}
+	if fid < 0 {
+		ns := make([]*file, len(files)+1)
+		copy(ns, files)
+		files = ns
+		fid = int32(len(files) - 1)
+	}
+
+	wr, err := createFile(fs.dir, fid)
+	if err != nil {
+		return nil, err
+	}
+
+	if files[fid] == nil {
+		f, err := openFileToRead(wr.path)
+		if err != nil {
+			wr.close()
+			return nil, err
+		}
+		files[fid] = f
+	}
+
+	fs.files.Store(files)
+	return wr, nil
+}
+
 func (fs *files) deleteFile(fid uint32) error {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
 	files := fs.files.Load().([]*file)
 	if len(files) <= int(fid) {
 		return os.ErrNotExist
 	}
-	file := files[fid]
-	if file == nil {
+	f := files[fid]
+	if f == nil {
 		return os.ErrNotExist
 	}
-	if err := file.remove(); err != nil {
+	nfs := make([]*file, len(files))
+	for i := range files {
+		if i != int(fid) {
+			nfs[i] = files[i]
+		}
+	}
+	fs.files.Store(nfs)
+
+	if err := f.remove(); err != nil {
 		return err
 	}
-	// @TODO how to delete from files
 	return nil
 }
 
@@ -370,6 +375,9 @@ func (fs *files) close() error {
 }
 
 func isSysErrNoSpace(err error) bool {
+	if err == nil {
+		return false
+	}
 	return strings.Contains(err.Error(), "no space left on device")
 	// if err == syscall.ENOSPC {
 	// 	return true

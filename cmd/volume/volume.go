@@ -164,7 +164,7 @@ func (v *Volume) ReadFileStream(key string, offset, length int64) (io.ReadCloser
 }
 
 func (v *Volume) WriteAll(key string, size int64, r io.Reader) error {
-	atomic.AddInt32(&v.requestCount, 1)
+	atomic.AddInt32(&(v.requestCount), 1)
 	defer atomic.AddInt32(&v.requestCount, -1)
 	if v.closed() {
 		return ErrClosed
@@ -436,19 +436,19 @@ func (v *Volume) dumpListToMaintain(ctx context.Context, rate float64) ([]uint32
 	return list, nil
 }
 
-func (v Volume) backupPath() string {
+func (v *Volume) backupPath() string {
 	return path.Join(v.dir, IndexBackupDir)
 }
 
-func (v Volume) dataPath() string {
+func (v *Volume) dataPath() string {
 	return path.Join(v.dir, DataDir)
 }
 
-func (v Volume) maintainPath() string {
+func (v *Volume) maintainPath() string {
 	return path.Join(v.dir, MaintenanceDir)
 }
 
-func (v Volume) maintainListPath(vid uint32) string {
+func (v *Volume) maintainListPath(vid uint32) string {
 	return path.Join(v.dir, MaintenanceDir, fmt.Sprintf("%d%s", vid, listFileSuffix))
 }
 

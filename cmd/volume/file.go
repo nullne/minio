@@ -56,9 +56,6 @@ func init() {
 }
 
 func createFile(dir string, id int32) (f *file, err error) {
-	defer func(before time.Time) {
-		fmt.Println("createFile last: ", time.Since(before))
-	}(time.Now())
 	p := filepath.Join(dir, fmt.Sprintf("%d%s", id, dataFileSuffix))
 	f = new(file)
 	f.id = id
