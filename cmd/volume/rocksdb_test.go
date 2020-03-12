@@ -1,8 +1,6 @@
 package volume
 
 import (
-	"fmt"
-	"strings"
 	"testing"
 )
 
@@ -29,29 +27,29 @@ func TestSubDir(t *testing.T) {
 	}
 }
 
-func TestRandomPickFromTimeRange(t *testing.T) {
-	cases := []struct {
-		p   string
-		err error
-	}{
-		{"15:30:00-16:30:00", nil},
-		{"15:30:00-16:30:00", nil},
-		{"15:30:00-16:30:00", nil},
-		{"15:30:00-16:30:00", nil},
-		{"15:30:00-16:30:00", nil},
-		{"15:30:00-16:30:00", nil},
-		{"15:30:00-16:30:00", nil},
-		{"15:30:00-16:30:00", nil},
-		{"15:30:00-16:30:00", nil},
-		{"15:30:00-16:30:00", nil},
-	}
-
-	for _, c := range cases {
-		d, err := randomPickFromTimeRange(strings.Split(c.p, "-"))
-		if err != c.err {
-			t.Errorf("range: %s, wanna: %v, got: %v", c.p, c.err, err)
-		}
-		// check the result manully
-		fmt.Println(d)
-	}
-}
+// func TestRandomPickFromTimeRange(t *testing.T) {
+// 	cases := []struct {
+// 		p   string
+// 		err error
+// 	}{
+// 		{"15:30:00-16:30:00", nil},
+// 		{"15:30:00-16:30:00", nil},
+// 		{"15:30:00-16:30:00", nil},
+// 		{"15:30:00-16:30:00", nil},
+// 		{"15:30:00-16:30:00", nil},
+// 		{"15:30:00-16:30:00", nil},
+// 		{"15:30:00-16:30:00", nil},
+// 		{"15:30:00-16:30:00", nil},
+// 		{"15:30:00-16:30:00", nil},
+// 		{"15:30:00-16:30:00", nil},
+// 	}
+//
+// 	for _, c := range cases {
+// 		d, err := randomPickFromTimeRange(strings.Split(c.p, "-"))
+// 		if err != c.err {
+// 			t.Errorf("range: %s, wanna: %v, got: %v", c.p, c.err, err)
+// 		}
+// 		// check the result manully
+// 		fmt.Println(d)
+// 	}
+// }

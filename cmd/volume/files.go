@@ -29,7 +29,8 @@ type fileLock interface {
 
 type files struct {
 	dir             string
-	files           atomic.Value // []*file
+	files           atomic.Value
+	mu              sync.RWMutex
 	ch              chan request
 	writableFile    *file
 	chWritableFile  chan *file
@@ -324,27 +325,6 @@ func (fs *files) readOnlyFiles() (fids []int32) {
 	return
 }
 
-func (fs *files) close() error {
-	close(fs.done)
-	fs.wg.Wait()
-	files := fs.files.Load().([]*file)
-	for _, f := range files {
-		if f == nil {
-			continue
-		}
-		logger.LogIf(context.Background(), f.close())
-	}
-	logger.LogIf(context.Background(), fs.writableFile.close())
-	select {
-	case f := <-fs.chWritableFile:
-		if f != nil {
-			logger.LogIf(context.Background(), f.close())
-		}
-	default:
-	}
-	return fs.flock.release()
-}
-
 func (fs *files) deleteFile(fid uint32) error {
 	files := fs.files.Load().([]*file)
 	if len(files) <= int(fid) {
@@ -366,6 +346,27 @@ func (fs *files) remove() error {
 		return err
 	}
 	return os.RemoveAll(fs.dir)
+}
+
+func (fs *files) close() error {
+	close(fs.done)
+	fs.wg.Wait()
+	files := fs.files.Load().([]*file)
+	for _, f := range files {
+		if f == nil {
+			continue
+		}
+		logger.LogIf(context.Background(), f.close())
+	}
+	logger.LogIf(context.Background(), fs.writableFile.close())
+	select {
+	case f := <-fs.chWritableFile:
+		if f != nil {
+			logger.LogIf(context.Background(), f.close())
+		}
+	default:
+	}
+	return fs.flock.release()
 }
 
 func isSysErrNoSpace(err error) bool {

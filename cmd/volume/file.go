@@ -56,6 +56,9 @@ func init() {
 }
 
 func createFile(dir string, id int32) (f *file, err error) {
+	defer func(before time.Time) {
+		fmt.Println("createFile last: ", time.Since(before))
+	}(time.Now())
 	p := filepath.Join(dir, fmt.Sprintf("%d%s", id, dataFileSuffix))
 	f = new(file)
 	f.id = id
@@ -173,7 +176,7 @@ func (f *file) read(buffer []byte, offset int64) (int64, error) {
 			err = os.ErrNotExist
 		}
 	}
-	return int64(n), err
+	return int64(n) + 1, err
 }
 
 // no concurrent use

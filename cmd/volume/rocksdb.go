@@ -23,9 +23,10 @@ import (
 )
 
 type rocksDBIndex struct {
-	db *gorocksdb.DB
-	wo *gorocksdb.WriteOptions
-	ro *gorocksdb.ReadOptions
+	ctx context.Context
+	db  *gorocksdb.DB
+	wo  *gorocksdb.WriteOptions
+	ro  *gorocksdb.ReadOptions
 
 	wg *sync.WaitGroup
 
@@ -229,7 +230,7 @@ func rocksdbOptions(opt RocksDBOptions) *gorocksdb.Options {
 	return opts
 }
 
-func NewRocksDBIndex(dir string, opt RocksDBOptions) (Index, error) {
+func NewRocksDBIndex(ctx context.Context, dir string, opt RocksDBOptions) (Index, error) {
 	path := filepath.Join(opt.Root, dir, IndexDir)
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		if err := os.MkdirAll(path, 0755); err != nil {
@@ -245,6 +246,7 @@ func NewRocksDBIndex(dir string, opt RocksDBOptions) (Index, error) {
 		return nil, err
 	}
 	index := rocksDBIndex{
+		ctx:  ctx,
 		db:   db,
 		wo:   gorocksdb.NewDefaultWriteOptions(),
 		ro:   gorocksdb.NewDefaultReadOptions(),
@@ -324,7 +326,6 @@ func (db rocksDBIndex) segment(key string) []string {
 
 func (db *rocksDBIndex) initDirectoryCache() {
 	init := func() error {
-		defer catchPanic()
 		defer db.wg.Done()
 		if db.closed {
 			return nil
@@ -363,7 +364,6 @@ func (db *rocksDBIndex) initDirectoryCache() {
 
 func (db *rocksDBIndex) backupFn(p string) func() error {
 	return func() error {
-		defer catchPanic()
 		defer db.wg.Done()
 		if db.closed {
 			return nil
@@ -646,6 +646,8 @@ func (db *rocksDBIndex) ScanAll(ctx context.Context, filter func(s string) bool)
 					select {
 					case ech <- err:
 					case <-ctx.Done():
+						breaks = true
+					case <-db.ctx.Done():
 						breaks = true
 					}
 				} else {

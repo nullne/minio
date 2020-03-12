@@ -18,6 +18,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/minio/minio/cmd/logger"
@@ -32,34 +33,45 @@ const (
 	IndexBackupDir = "backup"
 	MaintenanceDir = "maintenance"
 
-	listFileSuffix          = ".list"
-	completedListFileSuffix = ".completed"
-	noNeedListFileSuffix    = ".no-need"
+	listFileSuffix = ".list"
 )
 
 var (
 	ErrUnderMaintenance = errors.New("there are other ongoing maintenance")
+	ErrClosed           = errors.New("volume has been closed")
 )
 
 type Volume struct {
 	dir   string
 	index Index
 	files *files
+
+	ctx          context.Context
+	cancel       context.CancelFunc
+	requestCount int32
+	maintaining  uint32
+	closedFlag   uint32
 }
 
-func NewVolume(ctx context.Context, dir string) (v *Volume, err error) {
-	index, err := NewRocksDBIndex(dir, parseRocksDBOptionsFromEnv())
+func NewVolume(ctx context.Context, dir string) (*Volume, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	index, err := NewRocksDBIndex(ctx, dir, parseRocksDBOptionsFromEnv())
 	if err != nil {
 		return nil, err
 	}
-	v = new(Volume)
-	v.dir = dir
-	v.index = index
-	v.files, err = newFiles(ctx, path.Join(dir, DataDir))
+	files, err := newFiles(ctx, path.Join(dir, DataDir))
 	if err != nil {
 		return nil, err
 	}
-	return v, nil
+
+	v := Volume{
+		dir:    dir,
+		index:  index,
+		files:  files,
+		ctx:    ctx,
+		cancel: cancel,
+	}
+	return &v, nil
 }
 
 // ReadAll reads from r until an error or EOF and returns the data it read.
@@ -67,6 +79,11 @@ func NewVolume(ctx context.Context, dir string) (v *Volume, err error) {
 // defined to read from src until EOF, it does not treat an EOF from Read
 // as an error to be reported.
 func (v *Volume) ReadAll(key string) ([]byte, error) {
+	atomic.AddInt32(&v.requestCount, 1)
+	defer atomic.AddInt32(&v.requestCount, -1)
+	if v.closed() {
+		return nil, ErrClosed
+	}
 	info, err := v.index.Get(key)
 	if err != nil {
 		return nil, err
@@ -94,6 +111,11 @@ func (v *Volume) ReadAll(key string) ([]byte, error) {
 // If an EOF happens after reading some but not all the bytes,
 // ReadFile returns ErrUnexpectedEOF.
 func (v *Volume) ReadFile(key string, offset int64, buffer []byte) (int64, error) {
+	atomic.AddInt32(&v.requestCount, 1)
+	defer atomic.AddInt32(&v.requestCount, -1)
+	if v.closed() {
+		return -1, ErrClosed
+	}
 	info, err := v.index.Get(key)
 	if err != nil {
 		return 0, err
@@ -110,6 +132,11 @@ func (v *Volume) ReadFile(key string, offset int64, buffer []byte) (int64, error
 }
 
 func (v *Volume) ReadFileStream(key string, offset, length int64) (io.ReadCloser, error) {
+	atomic.AddInt32(&v.requestCount, 1)
+	defer atomic.AddInt32(&v.requestCount, -1)
+	if v.closed() {
+		return nil, ErrClosed
+	}
 	info, err := v.index.Get(key)
 	if err != nil {
 		return nil, err
@@ -137,6 +164,11 @@ func (v *Volume) ReadFileStream(key string, offset, length int64) (io.ReadCloser
 }
 
 func (v *Volume) WriteAll(key string, size int64, r io.Reader) error {
+	atomic.AddInt32(&v.requestCount, 1)
+	defer atomic.AddInt32(&v.requestCount, -1)
+	if v.closed() {
+		return ErrClosed
+	}
 	// io.Reader isn't predictable
 	bs := make([]byte, size)
 	if _, err := io.ReadFull(r, bs); err != nil {
@@ -163,6 +195,11 @@ func (v *Volume) WriteAll(key string, size int64, r io.Reader) error {
 // /data1/bucket/object/part.2
 // return error "not empty", if delete /data1/bucket (not the object directory)
 func (v *Volume) Delete(path string) error {
+	atomic.AddInt32(&v.requestCount, 1)
+	defer atomic.AddInt32(&v.requestCount, -1)
+	if v.closed() {
+		return ErrClosed
+	}
 	if path == "" {
 		return nil
 	}
@@ -170,15 +207,30 @@ func (v *Volume) Delete(path string) error {
 }
 
 func (v *Volume) List(p string, count int) ([]string, error) {
+	atomic.AddInt32(&v.requestCount, 1)
+	defer atomic.AddInt32(&v.requestCount, -1)
+	if v.closed() {
+		return nil, ErrClosed
+	}
 	return v.index.ListN(p, count)
 }
 
 func (v *Volume) Stat(key string) (os.FileInfo, error) {
+	atomic.AddInt32(&v.requestCount, 1)
+	defer atomic.AddInt32(&v.requestCount, -1)
+	if v.closed() {
+		return nil, ErrClosed
+	}
 	return v.index.Get(key)
 }
 
 // fake dir mod time
 func (v *Volume) StatDir(p string) (os.FileInfo, error) {
+	atomic.AddInt32(&v.requestCount, 1)
+	defer atomic.AddInt32(&v.requestCount, -1)
+	if v.closed() {
+		return nil, ErrClosed
+	}
 	if p == "" {
 		return nil, os.ErrNotExist
 	}
@@ -189,6 +241,11 @@ func (v *Volume) StatDir(p string) (os.FileInfo, error) {
 }
 
 func (v *Volume) MakeDir(p string) error {
+	atomic.AddInt32(&v.requestCount, 1)
+	defer atomic.AddInt32(&v.requestCount, -1)
+	if v.closed() {
+		return ErrClosed
+	}
 	if p == "" {
 		return nil
 	}
@@ -200,21 +257,6 @@ func (v *Volume) MakeDir(p string) error {
 		isDir:    true,
 		modTime:  time.Now(),
 	})
-}
-
-// remove the volume itself including data and index
-// remove the backup dir also
-func (v *Volume) Remove() (err error) {
-	err = multierr.Append(err, v.index.Remove())
-	err = multierr.Append(err, v.files.remove())
-	err = multierr.Append(err, os.RemoveAll(v.dir))
-	return
-}
-
-func (v *Volume) Close() (err error) {
-	err = multierr.Append(err, v.index.Close())
-	err = multierr.Append(err, v.files.close())
-	return
 }
 
 // pathJoin - like path.Join() but retains trailing "/" of the last element
@@ -232,15 +274,10 @@ func pathJoin(elem ...string) string {
 	return ps + trailingSlash
 }
 
-func catchPanic() {
-	if err := recover(); err != nil {
-		logger.Info("catch panic: %+v", err)
-	}
-}
-
 type maintainItem struct {
-	size int
-	key  string
+	key    string
+	offset int
+	size   int
 }
 
 type maintainItems []maintainItem
@@ -254,29 +291,38 @@ func (s maintainItems) Swap(i, j int) {
 }
 
 func (s maintainItems) Less(i, j int) bool {
-	return s[i].size < s[i].size
+	return s[i].offset < s[i].offset
 }
 
-func (v *Volume) Maintain(ctx context.Context) error {
-	dir := path.Join(v.dir, MaintenanceDir)
-	fis, err := ioutil.ReadDir(dir)
+func (v *Volume) Maintain(ctx context.Context, rate float64) error {
+	atomic.AddInt32(&v.requestCount, 1)
+	defer atomic.AddInt32(&v.requestCount, -1)
+	if v.closed() {
+		return ErrClosed
+	}
+
+	if !atomic.CompareAndSwapUint32(&(v.maintaining), 0, 1) {
+		return ErrUnderMaintenance
+	}
+	defer atomic.StoreUint32(&(v.maintaining), 0)
+
+	defer os.RemoveAll(v.maintainPath())
+
+	list, err := v.dumpListToMaintain(ctx, rate)
 	if err != nil {
 		return err
 	}
-	for _, fi := range fis {
-		if !strings.HasSuffix(fi.Name(), listFileSuffix) {
-			continue
+
+	for _, vid := range list {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-v.ctx.Done():
+			return v.ctx.Err()
+		default:
 		}
-		volumeID, err := parseVolumeID(fi.Name())
-		if err != nil {
-			logger.Info("[disk maintenance]failed to parse volume id from %s: %s", fi.Name(), err.Error())
-			continue
-		}
-		if err := v.maintainSingle(volumeID, path.Join(dir, fi.Name())); err != nil {
-			return err
-		}
-		oldPath := path.Join(dir, fi.Name())
-		if err := os.Rename(oldPath, oldPath+completedListFileSuffix); err != nil {
+		if err := v.maintainSingle(vid, v.maintainListPath(vid)); err != nil {
+			logger.Info("failed to maintainSingle: %d %v", vid, err)
 			return err
 		}
 	}
@@ -286,6 +332,7 @@ func (v *Volume) Maintain(ctx context.Context) error {
 func (v *Volume) maintainSingle(volumeID uint32, listFile string) error {
 	f, err := os.Open(listFile)
 	if err != nil {
+		logger.Info("failed to open %s: %v", listFile, err)
 		return err
 	}
 	defer f.Close()
@@ -294,52 +341,54 @@ func (v *Volume) maintainSingle(volumeID uint32, listFile string) error {
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		ss := strings.Split(scanner.Text(), ",")
-		if len(ss) != 2 {
+		if len(ss) != 3 {
 			continue
 		}
-		i, err := strconv.Atoi(ss[1])
+		offset, err := strconv.Atoi(ss[1])
+		if err != nil {
+			return err
+		}
+		size, err := strconv.Atoi(ss[2])
 		if err != nil {
 			return err
 		}
 		items = append(items, maintainItem{
-			key:  ss[0],
-			size: i,
+			key:    ss[0],
+			size:   size,
+			offset: offset,
 		})
 	}
 	if err := scanner.Err(); err != nil {
+		logger.Info("failed to scan %s: %v", listFile, err)
 		return err
 	}
 	sort.Sort(items)
 	for _, item := range items {
 		reader, err := v.ReadFileStream(item.key, 0, int64(item.size))
 		if err != nil {
+			logger.Info("failed to read %s: %v", item.key, err)
 			return err
 		}
 		if err := v.WriteAll(item.key, int64(item.size), reader); err != nil {
+			logger.Info("failed to write %s: %v", item.key, err)
 			reader.Close()
 			return err
 		}
 		reader.Close()
 	}
 	if err := v.files.deleteFile(volumeID); err != nil {
+		logger.Info("failed to delete volume %v: %v", volumeID, err)
 		return err
 	}
 	return nil
 }
 
-func (v *Volume) DumpListToMaintain(ctx context.Context, rate float64) error {
-	if finished, err := v.isDumpingFinished(); err != nil {
-		return err
-	} else if finished {
-		return nil
+func (v *Volume) dumpListToMaintain(ctx context.Context, rate float64) ([]uint32, error) {
+	if err := os.RemoveAll(v.maintainPath()); err != nil {
+		return nil, err
 	}
-	dir := path.Join(v.dir, MaintenanceDir)
-	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		if err := os.Mkdir(dir, 0777); err != nil {
-			return err
-		}
-	} else if err != nil {
-		return err
+	if err := os.Mkdir(v.maintainPath(), 0777); err != nil {
+		return nil, err
 	}
 
 	fids := v.files.readOnlyFiles()
@@ -356,81 +405,93 @@ func (v *Volume) DumpListToMaintain(ctx context.Context, rate float64) error {
 			continue
 		}
 		if _, ok := files[e.volumeID]; !ok {
-			file, err := os.OpenFile(path.Join(dir, fmt.Sprintf("%d%s", e.volumeID, listFileSuffix)), os.O_CREATE|os.O_RDWR, 0644)
+			file, err := os.OpenFile(v.maintainListPath(e.volumeID), os.O_CREATE|os.O_RDWR, 0644)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			defer file.Close()
 			files[e.volumeID] = file
 		}
-		if _, err := fmt.Fprintf(files[e.volumeID], "%s,%d\n", e.fileName, e.offset); err != nil {
-			return err
+		if _, err := fmt.Fprintf(files[e.volumeID], "%s,%d,%d\n", e.fileName, e.offset, e.size); err != nil {
+			return nil, err
 		}
 		sizes[e.volumeID] += e.Size()
 	}
 	for err := range ech {
 		if err != nil {
-			return err
+			return nil, err
 		}
 	}
 
-	// renmae no-need compacting list
+	list := make([]uint32, 0, len(sizes))
 	for vid, size := range sizes {
 		if float64(size)/float64(MaxFileSize) < rate {
+			list = append(list, vid)
 			continue
 		}
-		oldPath := path.Join(dir, fmt.Sprintf("%d%s", vid, listFileSuffix))
-		if err := os.Rename(oldPath, oldPath+noNeedListFileSuffix); err != nil {
-			return err
+		if err := os.Remove(files[vid].Name()); err != nil {
+			return nil, err
 		}
 	}
-	return nil
+	return list, nil
 }
 
-func (v *Volume) CleanMaintain() error {
-	dir := path.Join(v.dir, MaintenanceDir)
-	return os.RemoveAll(dir)
+func (v Volume) backupPath() string {
+	return path.Join(v.dir, IndexBackupDir)
 }
 
-// if not finished, clean the remaining files
-func (v *Volume) isDumpingFinished() (bool, error) {
-	dir := path.Join(v.dir, MaintenanceDir)
-	f, err := os.Open(dir)
-	if os.IsNotExist(err) {
-		return false, nil
-	} else if err != nil {
-		return false, err
+func (v Volume) dataPath() string {
+	return path.Join(v.dir, DataDir)
+}
+
+func (v Volume) maintainPath() string {
+	return path.Join(v.dir, MaintenanceDir)
+}
+
+func (v Volume) maintainListPath(vid uint32) string {
+	return path.Join(v.dir, MaintenanceDir, fmt.Sprintf("%d%s", vid, listFileSuffix))
+}
+
+// remove the volume itself including data and index
+// remove the backup dir also
+func (v *Volume) Remove() (err error) {
+	// err = v.Close()
+	err = multierr.Append(err, v.index.Remove())
+	err = multierr.Append(err, v.files.remove())
+	err = multierr.Append(err, os.RemoveAll(v.dir))
+	return
+}
+
+func (v *Volume) closed() bool {
+	return atomic.LoadUint32(&(v.closedFlag)) == 1
+}
+
+func (v *Volume) Close() (err error) {
+	if v.closed() {
+		return nil
 	}
-	defer f.Close()
-	dirs, err := f.Readdirnames(-1)
-	if err != nil {
-		return false, err
-	}
-	var completed int
-	for _, d := range dirs {
-		if strings.HasSuffix(d, completedListFileSuffix) {
-			completed += 1
+	atomic.StoreUint32(&(v.closedFlag), 1)
+
+	v.cancel()
+
+	// wait for all requests finished or timeout
+	err = func() error {
+		ticker := time.NewTicker(10 * time.Millisecond)
+		defer ticker.Stop()
+		timer := time.NewTimer(time.Second)
+		defer timer.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				if atomic.LoadInt32(&v.requestCount) == 0 {
+					return nil
+				}
+			case <-timer.C:
+				return fmt.Errorf("timeout when closing volume %s", v.dir)
+			}
 		}
-	}
-	if completed == 0 {
-		// dumpling failed most likely, remove the remaining file
-		if err := os.RemoveAll(dir); err != nil {
-			return false, err
-		}
-		return false, nil
-	}
-	return true, nil
-}
-
-func parseVolumeID(s string) (uint32, error) {
-	idx := strings.Index(s, ".")
-	if idx == -1 {
-		return 0, errors.New("cannot parse index")
-	}
-
-	id, err := strconv.Atoi(s[:idx])
-	if err != nil {
-		return 0, err
-	}
-	return uint32(id), nil
+	}()
+	err = multierr.Append(err, v.index.Close())
+	err = multierr.Append(err, v.files.close())
+	return
 }
