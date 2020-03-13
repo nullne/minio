@@ -19,8 +19,8 @@ import (
 	"time"
 
 	"github.com/minio/minio/cmd/volume"
-	"github.com/pingcap/go-ycsb/pkg/generator"
-	"github.com/pingcap/go-ycsb/pkg/ycsb"
+	"github.com/nullne/go-ycsb/pkg/generator"
+	"github.com/nullne/go-ycsb/pkg/ycsb"
 	"golang.org/x/time/rate"
 	"gopkg.in/bufio.v1"
 )
