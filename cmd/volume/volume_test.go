@@ -29,6 +29,7 @@ var (
 	tmpDir = flag.String("tmp-dir", "/tmp", "")
 )
 
+// will be deleted
 func TestVolumeAndFileConcurrently(t *testing.T) {
 	dir, _ := ioutil.TempDir("/tmp", "volume_")
 	// fmt.Println(dir)
@@ -88,7 +89,9 @@ func TestVolumeAndFileConcurrently(t *testing.T) {
 	wg.Wait()
 }
 
+// will be deleted
 func TestVolumeAndFile(t *testing.T) {
+	volume.MaxFileSize = 4 << 20
 	dir, _ := ioutil.TempDir("/tmp", "volume_")
 	// fmt.Println(dir)
 	defer os.RemoveAll(dir)
@@ -143,72 +146,26 @@ func TestVolumeAndFile(t *testing.T) {
 	}
 }
 
-func TestVolumeReadFile(t *testing.T) {
-	dir, _ := ioutil.TempDir("/tmp", "volume_")
-	// fmt.Println(dir)
-	defer os.RemoveAll(dir)
-
-	v, err := volume.NewVolume(context.Background(), dir)
-	if err != nil {
-		t.Error(err)
-		return
-	}
-	// defer v.Close()
-
-	key := "key"
-	data := []byte("0123456789")
-	r := bufio.NewBuffer(data)
-	if err := v.WriteAll(key, int64(len(data)), r); err != nil {
-		t.Error(err)
-		return
-	}
-
-	r = bufio.NewBuffer(data)
-	if err := v.WriteAll("another KEY", int64(len(data)), r); err != nil {
-		t.Error(err)
-		return
-	}
-
-	data2, err := v.ReadAll(key)
-	if err != nil {
-		t.Error(err)
-	}
-	if !bytes.Equal(data, data2) {
-		t.Errorf("not equal")
-	}
-
-	data3 := make([]byte, 5)
-	n, err := v.ReadFile(key, 1, data3)
-	if err != nil {
-		t.Error(err)
-	}
-	if n != 5 {
-		t.Errorf("not equal")
-	}
-	if !bytes.Equal(data[1:6], data3) {
-		t.Errorf("not equal")
-	}
-
-	rr, err := v.ReadFileStream(key, 5, 6)
-	if err != nil {
-		t.Error(err)
-		return
-	}
-	data4, err := ioutil.ReadAll(rr)
-	if err != nil {
-		t.Error(err)
-	}
-
-	if !bytes.Equal(data[5:], data4) {
-		t.Errorf("not equal")
-	}
-
-	if err := v.Remove(); err != nil {
-		t.Error(err)
-	}
+func TestVolume_ReadAll(t *testing.T) {
 }
 
-func TestVolumeList(t *testing.T) {
+func TestVolume_ReadFile(t *testing.T) {
+}
+
+func TestVolume_ReadFileStream(t *testing.T) {
+}
+
+func TestVolume_WriteAll(t *testing.T) {
+}
+
+func TestVolume_Delete(t *testing.T) {
+}
+
+func TestVolume_Stat(t *testing.T) {
+}
+
+// will be refined
+func TestVolume_List(t *testing.T) {
 	dir, _ := ioutil.TempDir("/tmp", "volume_")
 	// fmt.Println(dir)
 	defer os.RemoveAll(dir)
@@ -248,7 +205,8 @@ func TestVolumeList(t *testing.T) {
 	}
 }
 
-func TestDirOperation(t *testing.T) {
+// will be refined
+func TestVolume_StatDir(t *testing.T) {
 	dir, _ := ioutil.TempDir("/tmp", "volume_")
 	// fmt.Println(dir)
 	defer os.RemoveAll(dir)
