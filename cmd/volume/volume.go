@@ -42,8 +42,8 @@ var (
 )
 
 const (
-	maintainenceStatusIdle uint32 = iota
-	maintainenceStatusDumpingList
+	maintainenceStatusIdle        uint32 = iota
+	maintainenceStatusDumpingList        // start
 	maintainenceStatusCompacting
 )
 
@@ -55,8 +55,8 @@ type Volume struct {
 	ctx                context.Context
 	cancel             context.CancelFunc
 	requestCount       int32
-	maintainenceStatus uint32
 	closedFlag         uint32
+	maintainenceStatus uint32
 }
 
 func NewVolume(ctx context.Context, dir string) (*Volume, error) {
@@ -300,41 +300,41 @@ func (s maintainItems) Less(i, j int) bool {
 	return s[i].offset < s[i].offset
 }
 
-func (v *Volume) MaintainStatus() string {
-	switch atomic.LoadUint32(&v.maintainenceStatus) {
-	case maintainenceStatusIdle:
-		return "idle"
-	case maintainenceStatusDumpingList:
-		return "dumping"
-	case maintainenceStatusCompacting:
-		return "compacting"
-	default:
-		return "unknown"
+// will send status into ch if it is not nil, will be closed at the end
+func (v *Volume) Maintain(ctx context.Context, rate float64, ch chan string) (err error) {
+	if ch != nil {
+		defer close(ch)
 	}
-}
 
-func (v *Volume) Maintain(ctx context.Context, rate float64) error {
 	atomic.AddInt32(&v.requestCount, 1)
 	defer atomic.AddInt32(&v.requestCount, -1)
 	if v.closed() {
 		return ErrClosed
 	}
 
-	if !atomic.CompareAndSwapUint32(&(v.maintainenceStatus), maintainenceStatusIdle, maintainenceStatusDumpingList) {
+	defer func() {
+		if err != nil {
+			pushMaintainStatus(ch, fmt.Sprintf("failed to maitain: %s", err.Error()))
+		}
+	}()
+
+	if !v.changeMaintainStatus(maintainenceStatusDumpingList) {
 		return ErrUnderMaintenance
 	}
-	defer atomic.StoreUint32(&(v.maintainenceStatus), maintainenceStatusIdle)
+	pushMaintainStatus(ch, "dumping")
+	defer v.changeMaintainStatus(maintainenceStatusIdle)
 
 	defer os.RemoveAll(v.maintainPath())
 
-	list, err := v.dumpListToMaintain(ctx, rate)
+	list, err := v.dumpListToMaintain(ctx, rate, ch)
 	if err != nil {
 		return err
 	}
 
-	atomic.StoreUint32(&(v.maintainenceStatus), maintainenceStatusCompacting)
+	v.changeMaintainStatus(maintainenceStatusCompacting)
+	pushMaintainStatus(ch, "compacting")
 
-	for _, vid := range list {
+	for i, vid := range list {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -346,8 +346,37 @@ func (v *Volume) Maintain(ctx context.Context, rate float64) error {
 			logger.Info("failed to maintainSingle: %d %v", vid, err)
 			return err
 		}
+		pushMaintainStatus(ch, fmt.Sprintf("compacting: %d/%d", i+1, len(list)))
 	}
 	return nil
+}
+
+func (v *Volume) changeMaintainStatus(s uint32) bool {
+	switch s {
+	case maintainenceStatusIdle:
+		atomic.StoreUint32(&(v.maintainenceStatus), s)
+		return true
+	case maintainenceStatusDumpingList:
+		if !atomic.CompareAndSwapUint32(&(v.maintainenceStatus), maintainenceStatusIdle, s) {
+			return false
+		}
+		return true
+	case maintainenceStatusCompacting:
+		atomic.StoreUint32(&(v.maintainenceStatus), s)
+		return true
+	default:
+		return false
+	}
+}
+
+func pushMaintainStatus(ch chan string, s string) {
+	if ch == nil {
+		return
+	}
+	select {
+	case ch <- s:
+	default:
+	}
 }
 
 func (v *Volume) maintainSingle(volumeID uint32, listFile string) error {
@@ -404,7 +433,7 @@ func (v *Volume) maintainSingle(volumeID uint32, listFile string) error {
 	return nil
 }
 
-func (v *Volume) dumpListToMaintain(ctx context.Context, rate float64) ([]uint32, error) {
+func (v *Volume) dumpListToMaintain(ctx context.Context, rate float64, logch chan string) ([]uint32, error) {
 	if err := os.RemoveAll(v.maintainPath()); err != nil {
 		return nil, err
 	}
@@ -454,6 +483,7 @@ func (v *Volume) dumpListToMaintain(ctx context.Context, rate float64) ([]uint32
 			return nil, err
 		}
 	}
+	pushMaintainStatus(logch, fmt.Sprintf("finish dumping, total: %d, need compaction: %d", len(sizes), len(list)))
 	return list, nil
 }
 

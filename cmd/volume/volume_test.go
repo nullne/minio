@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/binary"
+	"errors"
 	"flag"
 	"fmt"
 	"hash/fnv"
@@ -325,13 +326,13 @@ func TestVolume_Maintain(t *testing.T) {
 	go func() {
 		// only one maintenance instance
 		time.Sleep(10 * time.Millisecond)
-		if err := v.Maintain(ctx, 2); err != volume.ErrUnderMaintenance {
+		if err := v.Maintain(ctx, 2, nil); err != volume.ErrUnderMaintenance {
 			t.Error("shouldn't run")
 			return
 		}
 	}()
 
-	if err := v.Maintain(ctx, 2); err != nil {
+	if err := v.Maintain(ctx, 2, nil); err != nil {
 		t.Error(err)
 		return
 	}
@@ -366,26 +367,19 @@ func TestVolume_Maintain_closeOnDumping(t *testing.T) {
 
 	ctx := context.Background()
 
+	logch := make(chan string)
 	closed := make(chan error)
 	go func() {
-		ticker := time.NewTicker(10 * time.Millisecond)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				switch v.MaintainStatus() {
-				case "dumping":
-					closed <- v.Close()
-					return
-				default:
-					t.Error("should stop on dumping")
-					return
-				}
+		for s := range logch {
+			if strings.Contains(s, "dumping") {
+				closed <- v.Close()
+				return
 			}
 		}
+		closed <- errors.New("failed to close")
 	}()
 
-	if err := v.Maintain(ctx, 2); err != context.Canceled {
+	if err := v.Maintain(ctx, 2, logch); err != context.Canceled {
 		t.Errorf("wanna: %v, got: %v", context.Canceled, err)
 		return
 	}
@@ -429,27 +423,18 @@ func TestVolume_Maintain_closeOnCompacting(t *testing.T) {
 	ctx := context.Background()
 
 	closed := make(chan error)
+	logch := make(chan string)
 	go func() {
-		ticker := time.NewTicker(10 * time.Millisecond)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				switch v.MaintainStatus() {
-				case "dumping":
-					break
-				case "compacting":
-					closed <- v.Close()
-					return
-				default:
-					t.Error("should cancel on compacting")
-					return
-				}
+		for s := range logch {
+			if strings.Contains(s, "compacting") {
+				closed <- v.Close()
+				return
 			}
 		}
+		closed <- errors.New("failed to close")
 	}()
 
-	if err := v.Maintain(ctx, 2); err != context.Canceled && err != volume.ErrClosed {
+	if err := v.Maintain(ctx, 2, logch); err != context.Canceled && err != volume.ErrClosed {
 		t.Errorf("wanna: %v or %v, got: %v", context.Canceled, volume.ErrClosed, err)
 		return
 	}
@@ -496,25 +481,17 @@ func TestVolume_Maintain_cancelOnDumping(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
+	logch := make(chan string)
 	go func() {
-		ticker := time.NewTicker(10 * time.Millisecond)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				switch v.MaintainStatus() {
-				case "dumping":
-					cancel()
-					return
-				default:
-					cancel()
-					t.Error("should cancel on dumping")
-					return
-				}
+		for s := range logch {
+			if strings.Contains(s, "dumping") {
+				cancel()
+				return
 			}
 		}
+		t.Errorf("failed to cancel")
 	}()
-	if err := v.Maintain(ctx, 2); err != context.Canceled {
+	if err := v.Maintain(ctx, 2, logch); err != context.Canceled {
 		t.Errorf("wanna %s, got: %v", context.Canceled.Error(), err)
 		return
 	}
@@ -552,27 +529,17 @@ func TestVolume_Maintain_cancelOnCompacting(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
+	logch := make(chan string)
 	go func() {
-		ticker := time.NewTicker(10 * time.Millisecond)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				switch v.MaintainStatus() {
-				case "dumping":
-					break
-				case "compacting":
-					cancel()
-					return
-				default:
-					cancel()
-					t.Error("should cancel on compacting")
-					return
-				}
+		for s := range logch {
+			if strings.Contains(s, "compacting") {
+				cancel()
+				return
 			}
 		}
+		t.Errorf("failed to cancel")
 	}()
-	if err := v.Maintain(ctx, 2); err != context.Canceled {
+	if err := v.Maintain(ctx, 2, logch); err != context.Canceled {
 		t.Errorf("wanna %s, got: %v", context.Canceled.Error(), err)
 		return
 	}
@@ -669,7 +636,7 @@ func TestVolume_Maintain_whenRunning(t *testing.T) {
 	}
 
 	// step 3: run disk maintainence
-	if err := v.Maintain(ctx, 2); err != nil {
+	if err := v.Maintain(ctx, 2, nil); err != nil {
 		t.Error(err)
 	}
 	cancel()
