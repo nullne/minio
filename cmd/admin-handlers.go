@@ -866,7 +866,7 @@ func (a adminAPIHandlers) HealObjectHandler(w http.ResponseWriter, r *http.Reque
 	return
 }
 
-func extractDiskMaintenanceParams(r *http.Request) (operation string, rate float64, timeRange string, buckets, drives []string) {
+func extractDiskMaintenanceParams(r *http.Request) (operation string, rate float64, timeRange string, drives, buckets []string) {
 	vars := mux.Vars(r)
 	operation = vars[string(mgmtOperation)]
 
