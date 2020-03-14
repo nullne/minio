@@ -296,7 +296,48 @@ func TestDirOperation(t *testing.T) {
 	}
 }
 
-func TestVolumeMaintain(t *testing.T) {
+func TestVolume_Close(t *testing.T) {
+	volume.MaxFileSize = 4 << 20
+
+	dir, _ := ioutil.TempDir(*tmpDir, "volume_")
+	// fmt.Println(dir)
+	defer os.RemoveAll(dir)
+	v, err := volume.NewVolume(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	concurrent := 10
+	recordCount := int64(100000)
+
+	p := newObjectProp1()
+
+	// prefill data
+	if err := prefill(v, concurrent, int(recordCount), p); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := v.Close(); err != nil {
+		t.Error(err)
+	}
+
+	// try to open again
+	nv, err := volume.NewVolume(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// verify data
+	if err := verifyAll(nv, concurrent, recordCount, p); err != nil {
+		t.Error(err)
+	}
+
+	if err := nv.Close(); err != nil {
+		t.Error(err)
+	}
+}
+
+func TestVolume_Maintain(t *testing.T) {
 	volume.MaxFileSize = 4 << 20
 
 	dir, _ := ioutil.TempDir(*tmpDir, "volume_")
@@ -317,13 +358,14 @@ func TestVolumeMaintain(t *testing.T) {
 
 	p := newObjectProp1()
 
-	// step 1: prefill data
+	// prefill data
 	if err := prefill(v, concurrent, int(recordCount), p); err != nil {
 		t.Fatal(err)
 	}
 
 	ctx := context.Background()
 	go func() {
+		// only one maintenance instance
 		time.Sleep(10 * time.Millisecond)
 		if err := v.Maintain(ctx, 2); err != volume.ErrUnderMaintenance {
 			t.Error("shouldn't run")
@@ -336,14 +378,255 @@ func TestVolumeMaintain(t *testing.T) {
 		return
 	}
 
-	// lat step : verify data
+	// verify data
 	if err := verifyAll(v, concurrent, recordCount, p); err != nil {
+		t.Error(err)
+	}
+
+}
+
+func TestVolume_Maintain_closeOnDumping(t *testing.T) {
+	volume.MaxFileSize = 4 << 20
+
+	dir, _ := ioutil.TempDir(*tmpDir, "volume_")
+	// fmt.Println(dir)
+	defer os.RemoveAll(dir)
+	v, err := volume.NewVolume(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	concurrent := 10
+	recordCount := int64(100000)
+
+	p := newObjectProp1()
+
+	// prefill data
+	if err := prefill(v, concurrent, int(recordCount), p); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := context.Background()
+
+	closed := make(chan error)
+	go func() {
+		ticker := time.NewTicker(10 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				switch v.MaintainStatus() {
+				case "dumping":
+					closed <- v.Close()
+					return
+				default:
+					t.Error("should stop on dumping")
+					return
+				}
+			}
+		}
+	}()
+
+	if err := v.Maintain(ctx, 2); err != context.Canceled {
+		t.Errorf("wanna: %v, got: %v", context.Canceled, err)
+		return
+	}
+
+	if err := <-closed; err != nil {
+		t.Fatal(err)
+	}
+
+	nv, err := volume.NewVolume(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer nv.Close()
+	// verify data
+	if err := verifyAll(nv, concurrent, recordCount, p); err != nil {
 		t.Error(err)
 	}
 }
 
+func TestVolume_Maintain_closeOnCompacting(t *testing.T) {
+	volume.MaxFileSize = 4 << 20
+
+	dir, _ := ioutil.TempDir(*tmpDir, "volume_")
+	// fmt.Println(dir)
+	defer os.RemoveAll(dir)
+	v, err := volume.NewVolume(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	concurrent := 10
+	recordCount := int64(100000)
+
+	p := newObjectProp1()
+
+	// prefill data
+	if err := prefill(v, concurrent, int(recordCount), p); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := context.Background()
+
+	closed := make(chan error)
+	go func() {
+		ticker := time.NewTicker(10 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				switch v.MaintainStatus() {
+				case "dumping":
+					break
+				case "compacting":
+					closed <- v.Close()
+					return
+				default:
+					t.Error("should cancel on compacting")
+					return
+				}
+			}
+		}
+	}()
+
+	if err := v.Maintain(ctx, 2); err != context.Canceled && err != volume.ErrClosed {
+		t.Errorf("wanna: %v or %v, got: %v", context.Canceled, volume.ErrClosed, err)
+		return
+	}
+
+	if err := <-closed; err != nil {
+		t.Fatal(err)
+	}
+
+	nv, err := volume.NewVolume(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer nv.Close()
+	// verify data
+	if err := verifyAll(nv, concurrent, recordCount, p); err != nil {
+		t.Error(err)
+	}
+}
+
+func TestVolume_Maintain_cancelOnDumping(t *testing.T) {
+	volume.MaxFileSize = 4 << 20
+
+	dir, _ := ioutil.TempDir(*tmpDir, "volume_")
+	// fmt.Println(dir)
+	defer os.RemoveAll(dir)
+	v, err := volume.NewVolume(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := v.Remove(); err != nil {
+			t.Error(err)
+		}
+	}()
+
+	concurrent := 10
+	recordCount := int64(100000)
+
+	p := newObjectProp1()
+
+	// prefill data
+	if err := prefill(v, concurrent, int(recordCount), p); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		ticker := time.NewTicker(10 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				switch v.MaintainStatus() {
+				case "dumping":
+					cancel()
+					return
+				default:
+					cancel()
+					t.Error("should cancel on dumping")
+					return
+				}
+			}
+		}
+	}()
+	if err := v.Maintain(ctx, 2); err != context.Canceled {
+		t.Errorf("wanna %s, got: %v", context.Canceled.Error(), err)
+		return
+	}
+	// verify data
+	if err := verifyAll(v, concurrent, recordCount, p); err != nil {
+		t.Error(err)
+		return
+	}
+}
+
+func TestVolume_Maintain_cancelOnCompacting(t *testing.T) {
+	volume.MaxFileSize = 4 << 20
+
+	dir, _ := ioutil.TempDir(*tmpDir, "volume_")
+	// fmt.Println(dir)
+	defer os.RemoveAll(dir)
+	v, err := volume.NewVolume(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := v.Remove(); err != nil {
+			t.Error(err)
+		}
+	}()
+
+	concurrent := 10
+	recordCount := int64(100000)
+
+	p := newObjectProp1()
+
+	// prefill data
+	if err := prefill(v, concurrent, int(recordCount), p); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		ticker := time.NewTicker(10 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				switch v.MaintainStatus() {
+				case "dumping":
+					break
+				case "compacting":
+					cancel()
+					return
+				default:
+					cancel()
+					t.Error("should cancel on compacting")
+					return
+				}
+			}
+		}
+	}()
+	if err := v.Maintain(ctx, 2); err != context.Canceled {
+		t.Errorf("wanna %s, got: %v", context.Canceled.Error(), err)
+		return
+	}
+	// verify data
+	if err := verifyAll(v, concurrent, recordCount, p); err != nil {
+		t.Error(err)
+		return
+	}
+}
+
 // read, write, delete, maintain concurrently
-func TestVolumeAll(t *testing.T) {
+func TestVolume_Maintain_whenRunning(t *testing.T) {
 	volume.MaxFileSize = 4 << 20
 
 	dir, _ := ioutil.TempDir(*tmpDir, "volume_")

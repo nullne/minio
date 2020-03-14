@@ -40,7 +40,7 @@ type files struct {
 
 	wg     sync.WaitGroup
 	done   chan struct{}
-	closed int32 //closed
+	closed uint32
 }
 
 func (f *files) setCreateFileError(e error) {
@@ -90,8 +90,8 @@ func newFiles(ctx context.Context, dir string) (fs *files, err error) {
 
 	// wait the first wriable file
 	time.Sleep(time.Millisecond * 10)
-	if _, err := fs.getFileToWrite(ctx); err != nil {
-		logger.LogIf(ctx, err)
+	if _, err := fs.getFileToWrite(context.Background()); err != nil {
+		logger.LogIf(context.Background(), err)
 	}
 
 	fs.wg.Add(1)
@@ -130,27 +130,10 @@ func (fis *files) loadFiles() (err error) {
 	return nil
 }
 
-type request struct {
-	data []byte
-	resp chan response
-}
-
-type response struct {
-	info FileInfo
-	err  error
-}
-
 func (fs *files) prepareFileToWrite() {
 	defer fs.wg.Done()
-	// defer close(fs.chWritableFile)
 	var cur int32 = -1
 	for {
-		select {
-		case <-fs.done:
-			return
-		default:
-		}
-
 		wr, err := fs.createFile(cur)
 		fs.setCreateFileError(err)
 		if err != nil {
@@ -172,115 +155,25 @@ func (fs *files) prepareFileToWrite() {
 	}
 }
 
-func (fs *files) getFileToWrite(ctx context.Context) (*file, error) {
-	if fs.writableFile != nil && !fs.writableFile.isReadOnly() {
-		return fs.writableFile, nil
-	}
-	sleepDuration := time.Millisecond * 10
-retry:
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case f := <-fs.chWritableFile:
-		if wf := fs.writableFile; wf != nil {
-			logger.LogIf(ctx, wf.close())
-		}
-		fs.writableFile = f
-	default:
-		err := fs.getCreateFileError()
-		if err == nil {
-			if sleepDuration > time.Second*30 {
-				return nil, errors.New("wait more than 30s and cannot get file to write")
-			}
-			logger.Info("sleep %s to wait the file to write to be created", sleepDuration.String())
-			time.Sleep(sleepDuration)
-			sleepDuration *= 2
-			goto retry
-		} else {
-			logger.LogIf(ctx, fmt.Errorf("cannot get file to write: %s", err.Error()))
-			return nil, err
-		}
-	}
-	return fs.writableFile, nil
+type request struct {
+	data []byte
+	resp chan response
 }
 
-func (fs *files) getFileToRead(fid uint32) (*file, error) {
-	files := fs.files.Load().([]*file)
-	if len(files) <= int(fid) {
-		// return nil, fmt.Errorf("file volume %d not found", fid)
-		return nil, os.ErrNotExist
-	}
-	file := files[fid]
-	if file == nil {
-		// return nil, fmt.Errorf("file volume %d not found", fid)
-		return nil, os.ErrNotExist
-	}
-	return file, nil
-}
-
-func (fs *files) write(data []byte) (FileInfo, error) {
-	req := request{
-		data: data,
-		resp: make(chan response),
-	}
-
-	//@TODO change to context later
-	timer := time.NewTimer(time.Second * 10)
-	defer timer.Stop()
-	select {
-	case <-timer.C:
-		return FileInfo{}, ErrWriteTimeout
-	case fs.ch <- req:
-	}
-	resp := <-req.resp
-	return resp.info, resp.err
+type response struct {
+	info FileInfo
+	err  error
 }
 
 func (fs *files) writeWorker() {
 	defer fs.wg.Done()
-	for {
-		select {
-		case <-fs.done:
-			return
-		case r := <-fs.ch:
-			info, err := fs.writeData(context.Background(), r.data)
-			r.resp <- response{
-				info: info,
-				err:  err,
-			}
+	for r := range fs.ch {
+		info, err := fs.writeData(context.Background(), r.data)
+		r.resp <- response{
+			info: info,
+			err:  err,
 		}
 	}
-}
-
-func (fs *files) writeData(ctx context.Context, data []byte) (FileInfo, error) {
-	file, err := fs.getFileToWrite(ctx)
-	if err != nil {
-		return FileInfo{}, err
-	}
-	offset, err := file.write(data)
-	if err != nil {
-		return FileInfo{}, err
-	}
-	return FileInfo{
-		volumeID: uint32(file.id),
-		offset:   uint32(offset),
-		size:     uint32(len(data)),
-		modTime:  time.Now(),
-	}, nil
-}
-
-func (fs *files) readOnlyFiles() (fids []int32) {
-	files := fs.files.Load().([]*file)
-	for _, f := range files {
-		if f == nil {
-			continue
-		}
-		if !f.isReadOnly() {
-			continue
-		}
-		fids = append(fids, f.id)
-	}
-	return
 }
 
 func (fs *files) createFile(cur int32) (*file, error) {
@@ -321,6 +214,101 @@ func (fs *files) createFile(cur int32) (*file, error) {
 	return wr, nil
 }
 
+func (fs *files) writeData(ctx context.Context, data []byte) (FileInfo, error) {
+	file, err := fs.getFileToWrite(ctx)
+	if err != nil {
+		return FileInfo{}, err
+	}
+	offset, err := file.write(data)
+	if err != nil {
+		return FileInfo{}, err
+	}
+	return FileInfo{
+		volumeID: uint32(file.id),
+		offset:   uint32(offset),
+		size:     uint32(len(data)),
+		modTime:  time.Now(),
+	}, nil
+}
+
+func (fs *files) getFileToWrite(ctx context.Context) (*file, error) {
+	if fs.writableFile != nil && !fs.writableFile.isReadOnly() {
+		return fs.writableFile, nil
+	}
+	sleepDuration := time.Millisecond * 10
+retry:
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case f := <-fs.chWritableFile:
+		if wf := fs.writableFile; wf != nil {
+			logger.LogIf(ctx, wf.close())
+		}
+		fs.writableFile = f
+	default:
+		err := fs.getCreateFileError()
+		if err == nil {
+			if sleepDuration > time.Second*30 {
+				return nil, errors.New("wait more than 30s and cannot get file to write")
+			}
+			logger.Info("sleep %s to wait the file to write to be created", sleepDuration.String())
+			time.Sleep(sleepDuration)
+			sleepDuration *= 2
+			goto retry
+		} else {
+			logger.LogIf(ctx, fmt.Errorf("cannot get file to write: %s", err.Error()))
+			return nil, err
+		}
+	}
+	return fs.writableFile, nil
+}
+
+func (fs *files) write(data []byte) (FileInfo, error) {
+	req := request{
+		data: data,
+		resp: make(chan response),
+	}
+
+	//@TODO change to context later
+	timer := time.NewTimer(time.Second * 1)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return FileInfo{}, ErrWriteTimeout
+	case fs.ch <- req:
+	}
+	resp := <-req.resp
+	return resp.info, resp.err
+}
+
+func (fs *files) getFileToRead(fid uint32) (*file, error) {
+	files := fs.files.Load().([]*file)
+	if len(files) <= int(fid) {
+		// return nil, fmt.Errorf("file volume %d not found", fid)
+		return nil, os.ErrNotExist
+	}
+	file := files[fid]
+	if file == nil {
+		// return nil, fmt.Errorf("file volume %d not found", fid)
+		return nil, os.ErrNotExist
+	}
+	return file, nil
+}
+
+func (fs *files) readOnlyFiles() (fids []int32) {
+	files := fs.files.Load().([]*file)
+	for _, f := range files {
+		if f == nil {
+			continue
+		}
+		if !f.isReadOnly() {
+			continue
+		}
+		fids = append(fids, f.id)
+	}
+	return
+}
+
 func (fs *files) deleteFile(fid uint32) error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
@@ -346,15 +334,13 @@ func (fs *files) deleteFile(fid uint32) error {
 	return nil
 }
 
-func (fs *files) remove() error {
-	if err := fs.close(); err != nil {
-		return err
-	}
-	return os.RemoveAll(fs.dir)
-}
-
+// volume invoker gurantees that all requests are gone
 func (fs *files) close() error {
+	if !atomic.CompareAndSwapUint32(&fs.closed, 0, 1) {
+		return nil
+	}
 	close(fs.done)
+	close(fs.ch)
 	fs.wg.Wait()
 	files := fs.files.Load().([]*file)
 	for _, f := range files {
@@ -372,6 +358,13 @@ func (fs *files) close() error {
 	default:
 	}
 	return fs.flock.release()
+}
+
+func (fs *files) remove() error {
+	if err := fs.close(); err != nil {
+		return err
+	}
+	return os.RemoveAll(fs.dir)
 }
 
 func isSysErrNoSpace(err error) bool {

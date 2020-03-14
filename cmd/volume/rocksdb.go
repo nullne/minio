@@ -39,7 +39,11 @@ type rocksDBIndex struct {
 
 	backupDir string
 
-	closed bool
+	closed uint32
+}
+
+func (r *rocksDBIndex) closing() bool {
+	return atomic.LoadUint32(&r.closed) == 1
 }
 
 const (
@@ -258,6 +262,7 @@ func NewRocksDBIndex(ctx context.Context, dir string, opt RocksDBOptions) (Index
 		index.directoryStatus.Store(directoryStatusIniting)
 		index.directory = newPathTrie()
 		index.cacheLevel = opt.CacheLevel
+		fmt.Println("go")
 		go index.initDirectoryCache()
 	}
 
@@ -277,6 +282,7 @@ func NewRocksDBIndex(ctx context.Context, dir string, opt RocksDBOptions) (Index
 			}
 		}
 		index.backupDir = pathJoin(opt.BackupRoot, dir, IndexBackupDir)
+		fmt.Println("go")
 		go index.backupEvery(index.backupDir, duration, startAfter)
 	}
 
@@ -327,7 +333,7 @@ func (db rocksDBIndex) segment(key string) []string {
 func (db *rocksDBIndex) initDirectoryCache() {
 	init := func() error {
 		defer db.wg.Done()
-		if db.closed {
+		if db.closing() {
 			return nil
 		}
 		ro := gorocksdb.NewDefaultReadOptions()
@@ -365,7 +371,7 @@ func (db *rocksDBIndex) initDirectoryCache() {
 func (db *rocksDBIndex) backupFn(p string) func() error {
 	return func() error {
 		defer db.wg.Done()
-		if db.closed {
+		if db.closing() {
 			return nil
 		}
 		engine, err := gorocksdb.OpenBackupEngine(db.opts, p)
@@ -382,7 +388,7 @@ func (db *rocksDBIndex) backupEvery(p string, interval, startAfter time.Duration
 	logger.Info("sleep %s before backup", startAfter.String())
 	time.Sleep(startAfter)
 	for _ = range time.Tick(interval) {
-		if db.closed {
+		if db.closing() {
 			return
 		}
 		result := make(chan error, 1)
@@ -397,7 +403,7 @@ func (db *rocksDBIndex) backupEvery(p string, interval, startAfter time.Duration
 }
 
 func (db *rocksDBIndex) Get(key string) (fi FileInfo, err error) {
-	if db.closed {
+	if db.closing() {
 		return fi, ErrRocksDBClosed
 	}
 	defer func(before time.Time) {
@@ -425,7 +431,7 @@ func (db *rocksDBIndex) Get(key string) (fi FileInfo, err error) {
 }
 
 func (db *rocksDBIndex) Set(key string, fi FileInfo) (err error) {
-	if db.closed {
+	if db.closing() {
 		return ErrRocksDBClosed
 	}
 	defer func(before time.Time) {
@@ -449,7 +455,7 @@ func (db *rocksDBIndex) Set(key string, fi FileInfo) (err error) {
 }
 
 func (db *rocksDBIndex) Delete(keyPrefix string) (err error) {
-	if db.closed {
+	if db.closing() {
 		return ErrRocksDBClosed
 	}
 	defer func(before time.Time) {
@@ -498,7 +504,7 @@ func (db *rocksDBIndex) Delete(keyPrefix string) (err error) {
 
 // StatPath
 func (db *rocksDBIndex) StatDir(key string) (fi FileInfo, err error) {
-	if db.closed {
+	if db.closing() {
 		return fi, ErrRocksDBClosed
 	}
 	defer func(before time.Time) {
@@ -538,7 +544,7 @@ func (db *rocksDBIndex) StatDir(key string) (fi FileInfo, err error) {
 // count -1 means unlimited
 // listN list count entries under directory keyPrefix, not including itself
 func (db *rocksDBIndex) ListN(keyPrefix string, count int) ([]string, error) {
-	if db.closed {
+	if db.closing() {
 		return nil, ErrRocksDBClosed
 	}
 	defer func(before time.Time) {
@@ -582,7 +588,7 @@ func (db *rocksDBIndex) ListN(keyPrefix string, count int) ([]string, error) {
 	}
 
 	for count != 0 {
-		if db.closed {
+		if db.closing() {
 			return nil, ErrRocksDBClosed
 		}
 		if !it.ValidForPrefix([]byte(keyPrefix)) {
@@ -600,7 +606,7 @@ func (db *rocksDBIndex) ListN(keyPrefix string, count int) ([]string, error) {
 		key.Free()
 
 		for {
-			if db.closed {
+			if db.closing() {
 				return nil, ErrRocksDBClosed
 			}
 			it.Next()
@@ -633,9 +639,16 @@ func (db *rocksDBIndex) ScanAll(ctx context.Context, filter func(s string) bool)
 		defer it.Close()
 
 		it.SeekToFirst()
-		breaks := false
 
-		for it = it; it.Valid() && !breaks; it.Next() {
+	Outer:
+		for it = it; !db.closing() && it.Valid(); it.Next() {
+			select {
+			case <-ctx.Done():
+				break Outer
+			case <-db.ctx.Done():
+				break Outer
+			default:
+			}
 			key := it.Key()
 			if filter(string(key.Data())) {
 				var fi FileInfo
@@ -646,20 +659,30 @@ func (db *rocksDBIndex) ScanAll(ctx context.Context, filter func(s string) bool)
 					select {
 					case ech <- err:
 					case <-ctx.Done():
-						breaks = true
-					case <-db.ctx.Done():
-						breaks = true
+						break Outer
 					}
 				} else {
 					select {
 					case ch <- fi:
 					case <-ctx.Done():
-						breaks = true
+						break Outer
 					}
 				}
 				value.Free()
 			}
 			key.Free()
+		}
+		if err := ctx.Err(); err != nil {
+			ech <- err
+			return
+		}
+		if err := db.ctx.Err(); err != nil {
+			ech <- err
+			return
+		}
+		if db.closing() {
+			ech <- ErrRocksDBClosed
+			return
 		}
 		if err := it.Err(); err != nil {
 			ech <- err
@@ -670,7 +693,7 @@ func (db *rocksDBIndex) ScanAll(ctx context.Context, filter func(s string) bool)
 }
 
 func (db *rocksDBIndex) Close() error {
-	if db.closed {
+	if !atomic.CompareAndSwapUint32(&db.closed, 0, 1) {
 		return nil
 	}
 	db.wg.Wait()
@@ -678,14 +701,10 @@ func (db *rocksDBIndex) Close() error {
 	db.ro.Destroy()
 	db.wo.Destroy()
 	db.opts.Destroy()
-	db.closed = true
 	return nil
 }
 
 func (db *rocksDBIndex) Remove() (err error) {
-	defer func(before time.Time) {
-		DiskOperationDuration.With(prometheus.Labels{"operation_type": "Remove"}).Observe(time.Since(before).Seconds())
-	}(time.Now())
 	name := db.db.Name()
 	err = multierr.Append(err, db.Close())
 

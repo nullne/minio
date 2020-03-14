@@ -41,16 +41,22 @@ var (
 	ErrClosed           = errors.New("volume has been closed")
 )
 
+const (
+	maintainenceStatusIdle uint32 = iota
+	maintainenceStatusDumpingList
+	maintainenceStatusCompacting
+)
+
 type Volume struct {
 	dir   string
 	index Index
 	files *files
 
-	ctx          context.Context
-	cancel       context.CancelFunc
-	requestCount int32
-	maintaining  uint32
-	closedFlag   uint32
+	ctx                context.Context
+	cancel             context.CancelFunc
+	requestCount       int32
+	maintainenceStatus uint32
+	closedFlag         uint32
 }
 
 func NewVolume(ctx context.Context, dir string) (*Volume, error) {
@@ -294,6 +300,19 @@ func (s maintainItems) Less(i, j int) bool {
 	return s[i].offset < s[i].offset
 }
 
+func (v *Volume) MaintainStatus() string {
+	switch atomic.LoadUint32(&v.maintainenceStatus) {
+	case maintainenceStatusIdle:
+		return "idle"
+	case maintainenceStatusDumpingList:
+		return "dumping"
+	case maintainenceStatusCompacting:
+		return "compacting"
+	default:
+		return "unknown"
+	}
+}
+
 func (v *Volume) Maintain(ctx context.Context, rate float64) error {
 	atomic.AddInt32(&v.requestCount, 1)
 	defer atomic.AddInt32(&v.requestCount, -1)
@@ -301,10 +320,10 @@ func (v *Volume) Maintain(ctx context.Context, rate float64) error {
 		return ErrClosed
 	}
 
-	if !atomic.CompareAndSwapUint32(&(v.maintaining), 0, 1) {
+	if !atomic.CompareAndSwapUint32(&(v.maintainenceStatus), maintainenceStatusIdle, maintainenceStatusDumpingList) {
 		return ErrUnderMaintenance
 	}
-	defer atomic.StoreUint32(&(v.maintaining), 0)
+	defer atomic.StoreUint32(&(v.maintainenceStatus), maintainenceStatusIdle)
 
 	defer os.RemoveAll(v.maintainPath())
 
@@ -312,6 +331,8 @@ func (v *Volume) Maintain(ctx context.Context, rate float64) error {
 	if err != nil {
 		return err
 	}
+
+	atomic.StoreUint32(&(v.maintainenceStatus), maintainenceStatusCompacting)
 
 	for _, vid := range list {
 		select {
@@ -455,7 +476,7 @@ func (v *Volume) maintainListPath(vid uint32) string {
 // remove the volume itself including data and index
 // remove the backup dir also
 func (v *Volume) Remove() (err error) {
-	// err = v.Close()
+	err = v.Close()
 	err = multierr.Append(err, v.index.Remove())
 	err = multierr.Append(err, v.files.remove())
 	err = multierr.Append(err, os.RemoveAll(v.dir))
@@ -472,13 +493,14 @@ func (v *Volume) Close() (err error) {
 	}
 	atomic.StoreUint32(&(v.closedFlag), 1)
 
+	// inform the long runing or background jobs to exit
 	v.cancel()
 
 	// wait for all requests finished or timeout
 	err = func() error {
 		ticker := time.NewTicker(10 * time.Millisecond)
 		defer ticker.Stop()
-		timer := time.NewTimer(time.Second)
+		timer := time.NewTimer(10 * time.Second)
 		defer timer.Stop()
 		for {
 			select {
@@ -487,7 +509,7 @@ func (v *Volume) Close() (err error) {
 					return nil
 				}
 			case <-timer.C:
-				return fmt.Errorf("timeout when closing volume %s", v.dir)
+				return fmt.Errorf("prematurely closed volume %s after timeout", v.dir)
 			}
 		}
 	}()
