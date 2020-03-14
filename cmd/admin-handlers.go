@@ -866,7 +866,7 @@ func (a adminAPIHandlers) HealObjectHandler(w http.ResponseWriter, r *http.Reque
 	return
 }
 
-func extractDiskMaintenanceParams(r *http.Request) (operation string, rate float64, timeRange string) {
+func extractDiskMaintenanceParams(r *http.Request) (operation string, rate float64, timeRange string, buckets, drives []string) {
 	vars := mux.Vars(r)
 	operation = vars[string(mgmtOperation)]
 
@@ -883,16 +883,19 @@ func extractDiskMaintenanceParams(r *http.Request) (operation string, rate float
 	if vs := values["time-range"]; len(vs) != 0 {
 		timeRange = vs[0]
 	}
+
+	buckets = values["buckets"]
+	drives = values["drives"]
 	return
 }
 
 func (a adminAPIHandlers) DiskMaintenanceHandler(w http.ResponseWriter, r *http.Request) {
 
-	operation, rate, timeRange := extractDiskMaintenanceParams(r)
+	operation, rate, timeRange, drives, buckets := extractDiskMaintenanceParams(r)
 
 	switch operation {
 	case "start":
-		if err := globalFileVolumeMaintenance.Start(rate, timeRange); err != nil {
+		if err := globalFileVolumeMaintenance.Start(rate, timeRange, drives, buckets); err != nil {
 			writeErrorResponseJSON(context.Background(), w, toAdminAPIErr(context.Background(), err), r.URL)
 			return
 		}

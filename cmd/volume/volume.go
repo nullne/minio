@@ -342,7 +342,7 @@ func (v *Volume) Maintain(ctx context.Context, rate float64, ch chan string) (er
 			return v.ctx.Err()
 		default:
 		}
-		if err := v.maintainSingle(vid, v.maintainListPath(vid)); err != nil {
+		if err := v.maintainSingle(ctx, vid, v.maintainListPath(vid)); err != nil {
 			logger.Info("failed to maintainSingle: %d %v", vid, err)
 			return err
 		}
@@ -379,7 +379,7 @@ func pushMaintainStatus(ch chan string, s string) {
 	}
 }
 
-func (v *Volume) maintainSingle(volumeID uint32, listFile string) error {
+func (v *Volume) maintainSingle(ctx context.Context, volumeID uint32, listFile string) error {
 	f, err := os.Open(listFile)
 	if err != nil {
 		logger.Info("failed to open %s: %v", listFile, err)
@@ -414,6 +414,11 @@ func (v *Volume) maintainSingle(volumeID uint32, listFile string) error {
 	}
 	sort.Sort(items)
 	for _, item := range items {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
 		reader, err := v.ReadFileStream(item.key, 0, int64(item.size))
 		if err != nil {
 			logger.Info("failed to read %s: %v", item.key, err)

@@ -18,13 +18,20 @@ type MaintenanceStatus struct {
 
 type FileVolumeStatus struct {
 	Status string `json:"status"`
+	Log    string `json:"log"`
 }
 
-func (adm *AdminClient) StartDiskMaintenance(rate float64, timeRange string) error {
+func (adm *AdminClient) StartDiskMaintenance(rate float64, timeRange string, drives, buckets []string) error {
 	path := fmt.Sprintf("/v1/maintenance/start")
 	queryVals := make(url.Values)
 	queryVals.Set("rate", fmt.Sprint(rate))
 	queryVals.Set("time-range", timeRange)
+	for _, b := range buckets {
+		queryVals.Add("buckets", b)
+	}
+	for _, b := range drives {
+		queryVals.Add("drives", b)
+	}
 	return adm.maintainDisk(path, queryVals)
 }
 
