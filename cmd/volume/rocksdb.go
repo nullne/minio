@@ -262,7 +262,6 @@ func NewRocksDBIndex(ctx context.Context, dir string, opt RocksDBOptions) (Index
 		index.directoryStatus.Store(directoryStatusIniting)
 		index.directory = newPathTrie()
 		index.cacheLevel = opt.CacheLevel
-		fmt.Println("go")
 		go index.initDirectoryCache()
 	}
 
@@ -282,7 +281,6 @@ func NewRocksDBIndex(ctx context.Context, dir string, opt RocksDBOptions) (Index
 			}
 		}
 		index.backupDir = pathJoin(opt.BackupRoot, dir, IndexBackupDir)
-		fmt.Println("go")
 		go index.backupEvery(index.backupDir, duration, startAfter)
 	}
 

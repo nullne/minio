@@ -333,9 +333,9 @@ func (v *Volume) Maintain(ctx context.Context, rate float64, ch chan string) (er
 	}
 
 	v.changeMaintainStatus(maintainenceStatusCompacting)
-	pushMaintainStatus(ch, "compacting")
 
 	for i, vid := range list {
+		pushMaintainStatus(ch, fmt.Sprintf("compacting: %d/%d", i, len(list)))
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -347,7 +347,6 @@ func (v *Volume) Maintain(ctx context.Context, rate float64, ch chan string) (er
 			logger.Info("failed to maintainSingle: %d %v", vid, err)
 			return err
 		}
-		pushMaintainStatus(ch, fmt.Sprintf("compacting: %d/%d", i+1, len(list)))
 	}
 	return nil
 }
