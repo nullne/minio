@@ -5,6 +5,8 @@ package volume
 import (
 	"os"
 	"syscall"
+
+	"golang.org/x/sys/unix"
 )
 
 // Fallocate uses the linux Fallocate syscall, which helps us to be
@@ -17,8 +19,7 @@ func Fallocate(fd int, offset int64, len int64) error {
 	}
 	// Don't extend size of file even if offset + len is
 	// greater than file size from <bits/fcntl-linux.h>.
-	fallocFLKeepSize := uint32(1)
-	return syscall.Fallocate(fd, fallocFLKeepSize, offset, len)
+	return syscall.Fallocate(fd, unix.FALLOC_FL_KEEP_SIZE, offset, len)
 }
 
 func DirectReadOnlyOpen(name string, perm os.FileMode) (*os.File, error) {

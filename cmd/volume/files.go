@@ -37,6 +37,7 @@ type files struct {
 	createFileError error
 	createFileLock  sync.RWMutex
 	flock           fileLock
+	deleteCh        chan struct{}
 
 	wg     sync.WaitGroup
 	done   chan struct{}
@@ -80,6 +81,7 @@ func newFiles(ctx context.Context, dir string) (fs *files, err error) {
 	fs.chWritableFile = make(chan *file)
 	fs.flock = fl
 	fs.done = make(chan struct{})
+	fs.deleteCh = make(chan struct{})
 
 	if err := fs.loadFiles(); err != nil {
 		return nil, err
@@ -138,7 +140,14 @@ func (fs *files) prepareFileToWrite() {
 		fs.setCreateFileError(err)
 		if err != nil {
 			if isSysErrNoSpace(err) {
-				return
+				select {
+				case <-fs.done:
+					wr.close()
+					return
+				case <-fs.deleteCh:
+					fs.setCreateFileError(nil)
+					continue
+				}
 			}
 			logger.LogIf(context.Background(), err)
 			time.Sleep(10 * time.Second)
@@ -270,7 +279,7 @@ func (fs *files) write(data []byte) (FileInfo, error) {
 	}
 
 	//@TODO change to context later
-	timer := time.NewTimer(time.Second * 1)
+	timer := time.NewTimer(time.Second * 10)
 	defer timer.Stop()
 	select {
 	case <-timer.C:
@@ -330,6 +339,10 @@ func (fs *files) deleteFile(fid uint32) error {
 
 	if err := f.remove(); err != nil {
 		return err
+	}
+	select {
+	case fs.deleteCh <- struct{}{}:
+	default:
 	}
 	return nil
 }

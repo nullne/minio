@@ -2,7 +2,9 @@
 
 package volume
 
-import "testing"
+import (
+	"testing"
+)
 
 // Tests allocate.
 func TestFallocate(t *testing.T) {

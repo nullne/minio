@@ -60,14 +60,25 @@ func createFile(dir string, id int32) (f *file, err error) {
 	f = new(file)
 	f.id = id
 	f.path = p
+	createNew := false
+	if _, err := os.Stat(p); err != nil {
+		if os.IsNotExist(err) {
+			createNew = true
+		} else {
+			return nil, err
+		}
+	}
 	f.data, err = os.OpenFile(p, os.O_WRONLY|os.O_CREATE, 0666)
 	if err != nil {
 		logger.LogIf(context.Background(), fmt.Errorf("failed to create file %s to write: %v", p, err))
 		return nil, err
 	}
-	if err := Fallocate(int(f.data.Fd()), 0, MaxFileSize); err != nil {
-		logger.LogIf(context.Background(), f.close())
-		return nil, err
+	if createNew {
+		if err := Fallocate(int(f.data.Fd()), 0, MaxFileSize); err != nil {
+			logger.LogIf(context.Background(), f.close())
+			logger.LogIf(context.Background(), os.Remove(p))
+			return nil, err
+		}
 	}
 	return f, nil
 }
@@ -192,20 +203,24 @@ func (f *file) write(data []byte) (int64, error) {
 		return 0, err
 	}
 
-	defer func(w *os.File, off int64) {
-		if err != nil {
-			if te := w.Truncate(end); te != nil {
-				// glog.V(0).Infof("Failed to truncate %s back to %d with error: %v", w.Name(), end, te)
-				logger.LogIf(context.Background(), fmt.Errorf("failed to truncate %s back to %d with error: %v", w.Name(), end, te))
-			}
-		}
-	}(f.data, end)
+	// truncate will decrease the underlying fallocate size
+	// defer func(w *os.File, off int64) {
+	// 	if err != nil {
+	// 		if te := w.Truncate(end); te != nil {
+	// 			// glog.V(0).Infof("Failed to truncate %s back to %d with error: %v", w.Name(), end, te)
+	// 			logger.LogIf(context.Background(), fmt.Errorf("failed to truncate %s back to %d with error: %v", w.Name(), end, te))
+	// 		}
+	// 	}
+	// }(f.data, end)
 	n, err := f.data.Write(data)
 	if err != nil {
 		return 0, err
 	}
 	if end+int64(n) >= MaxFileSize {
 		f.setReadOnly()
+		if err := f.data.Truncate(end + int64(n)); err != nil {
+			return 0, err
+		}
 	}
 	return end, nil
 }

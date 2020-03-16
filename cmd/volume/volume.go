@@ -298,6 +298,7 @@ func (s maintainItems) Swap(i, j int) {
 
 func (s maintainItems) Less(i, j int) bool {
 	return s[i].offset < s[i].offset
+	// return s[i].key < s[i].key
 }
 
 // will send status into ch if it is not nil, will be closed at the end

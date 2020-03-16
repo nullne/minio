@@ -297,40 +297,56 @@ func TestVolume_Close(t *testing.T) {
 }
 
 func TestVolume_Maintain(t *testing.T) {
-	volume.MaxFileSize = 4 << 20
+	if testing.Short() {
+		t.Skip("skipping test in short mode.")
+	}
+	volume.MaxFileSize = 4 << 30
 
 	dir, _ := ioutil.TempDir(*tmpDir, "volume_")
 	// fmt.Println(dir)
 	defer os.RemoveAll(dir)
 	v, err := volume.NewVolume(context.Background(), dir)
 	if err != nil {
-		t.Fatal(err)
+		t.Error(err)
+		return
 	}
-	defer func() {
-		if err := v.Remove(); err != nil {
-			t.Error(err)
-		}
-	}()
 
 	concurrent := 10
-	recordCount := int64(100000)
-
-	p := newObjectProp1()
-
+	size := 10 * 1024
+	recordCount := int64(3 * volume.MaxFileSize / int64(size))
+	p := newObjectProp2(size)
 	// prefill data
 	if err := prefill(v, concurrent, int(recordCount), p); err != nil {
-		t.Fatal(err)
+		t.Error(err)
+		return
 	}
 
 	ctx := context.Background()
+
 	go func() {
-		// only one maintenance instance
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(time.Second)
 		if err := v.Maintain(ctx, 2, nil); err != volume.ErrUnderMaintenance {
-			t.Error("shouldn't run")
+			t.Error(err)
 			return
 		}
 	}()
+
+	if err := v.Maintain(ctx, 2, nil); err != nil {
+		t.Error(err)
+		return
+	}
+	if err := v.Close(); err != nil {
+		t.Error(err)
+		return
+	}
+
+	// re-open to maintain again and validate
+	v, err = volume.NewVolume(context.Background(), dir)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	defer v.Close()
 
 	if err := v.Maintain(ctx, 2, nil); err != nil {
 		t.Error(err)
@@ -341,7 +357,6 @@ func TestVolume_Maintain(t *testing.T) {
 	if err := verifyAll(v, concurrent, recordCount, p); err != nil {
 		t.Error(err)
 	}
-
 }
 
 func TestVolume_Maintain_closeOnDumping(t *testing.T) {
@@ -700,6 +715,14 @@ func newObjectProp1() objectProp {
 	}
 }
 
+func newObjectProp2(s int) objectProp {
+	return objectProp{
+		prefix:  "prefix",
+		minSize: s - s/10,
+		maxSize: s,
+	}
+}
+
 func buildKeyName(keyNum int64, p objectProp) string {
 	if !p.orderedInserts {
 		keyNum = hash64(keyNum)
@@ -713,10 +736,10 @@ func buildDeterministicValue(key string, p objectProp) []byte {
 	buf := make([]byte, int(size+21))
 	b := bytes.NewBuffer(buf[0:0])
 	b.WriteString(key)
+	n := bytesHash64(b.Bytes())
+	b.WriteString(strconv.FormatUint(uint64(n), 10))
 	for int64(b.Len()) < size {
-		b.WriteByte(':')
-		n := bytesHash64(b.Bytes())
-		b.WriteString(strconv.FormatUint(uint64(n), 10))
+		b.Write(b.Bytes())
 	}
 	b.Truncate(int(size))
 	return b.Bytes()
