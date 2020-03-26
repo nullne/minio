@@ -184,7 +184,7 @@ func (f *file) read(buffer []byte, offset int64) (int64, error) {
 			err = os.ErrNotExist
 		}
 	}
-	return int64(n) + 1, err
+	return int64(n), err
 }
 
 // no concurrent use
