@@ -272,6 +272,9 @@ var (
 	globalBackgroundHealing *healRoutine
 
 	globalEngineStarted uint32
+
+	// disk maintenance
+	globalFileVolumeMaintenance fileVolumeMaintenance
 )
 
 // global colors.

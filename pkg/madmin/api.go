@@ -113,6 +113,15 @@ func privateNew(endpoint, accessKeyID, secretAccessKey string, secure bool) (*Ad
 	return clnt, nil
 }
 
+func (adm AdminClient) EndpointAddr() string {
+	port := adm.endpointURL.Port()
+	host := adm.endpointURL.Hostname()
+	if port == "9000" {
+		return host
+	}
+	return fmt.Sprintf("%s:%s", host, port)
+}
+
 // SetAppInfo - add application details to user agent.
 func (adm *AdminClient) SetAppInfo(appName string, appVersion string) {
 	// if app name and version is not set, we do not a new user

@@ -1,9 +1,8 @@
 module github.com/minio/minio
 
 require (
-	cloud.google.com/go v0.26.0
-	contrib.go.opencensus.io/exporter/ocagent v0.4.7 // indirect
-	contrib.go.opencensus.io/exporter/stackdriver v0.0.0-20180919222851-d1e19f5c23e9 // indirect
+	cloud.google.com/go v0.34.0
+	contrib.go.opencensus.io/exporter/ocagent v0.5.0 // indirect
 	github.com/Azure/azure-sdk-for-go v26.4.0+incompatible
 	github.com/Azure/go-ansiterm v0.0.0-20170929234023-d6e3b3328b78 // indirect
 	github.com/Azure/go-autorest v11.5.2+incompatible
@@ -18,6 +17,7 @@ require (
 	github.com/aliyun/aliyun-oss-go-sdk v0.0.0-20170925032315-6fe16293d6b7
 	github.com/araddon/gou v0.0.0-20190110011759-c797efecbb61 // indirect
 	github.com/asaskevich/govalidator v0.0.0-20180720115003-f9ffefc3facf // indirect
+	github.com/aws/aws-sdk-go v1.15.31 // indirect
 	github.com/baiyubin/aliyun-sts-go-sdk v0.0.0-20180326062324-cfa1a18b161f // indirect
 	github.com/bcicen/jstream v0.0.0-20190220045926-16c1f8af81c2
 	github.com/bitly/go-hostpool v0.0.0-20171023180738-a3a6125de932 // indirect
@@ -30,7 +30,8 @@ require (
 	github.com/chrismalek/oktasdk-go v0.0.0-20181212195951-3430665dfaa0 // indirect
 	github.com/containerd/continuity v0.0.0-20181203112020-004b46473808 // indirect
 	github.com/coredns/coredns v0.0.0-20180121192821-d4bf076ccf4e
-	github.com/coreos/etcd v0.0.0-20180703215944-e4425ee79f2f
+	//github.com/coreos/etcd v0.0.0-20180703215944-e4425ee79f2f
+	github.com/coreos/etcd v3.3.12+incompatible
 	github.com/coreos/go-oidc v2.0.0+incompatible // indirect
 	github.com/dancannon/gorethink v4.0.0+incompatible // indirect
 	github.com/denisenkom/go-mssqldb v0.0.0-20190315220205-a8ed825ac853 // indirect
@@ -41,7 +42,7 @@ require (
 	github.com/docker/go-connections v0.4.0 // indirect
 	github.com/docker/go-units v0.3.3 // indirect
 	github.com/duosecurity/duo_api_golang v0.0.0-20190308151101-6c680f768e74 // indirect
-	github.com/dustin/go-humanize v0.0.0-20170228161531-259d2a102b87
+	github.com/dustin/go-humanize v1.0.0
 	github.com/eapache/go-resiliency v0.0.0-20160104191539-b86b1ec0dd42 // indirect
 	github.com/eapache/go-xerial-snappy v0.0.0-20160609142408-bb955e01b934 // indirect
 	github.com/eapache/queue v1.1.0 // indirect
@@ -63,13 +64,14 @@ require (
 	github.com/go-test/deep v1.0.1 // indirect
 	github.com/gocql/gocql v0.0.0-20190301043612-f6df8288f9b4 // indirect
 	github.com/gogo/protobuf v1.2.1
-	github.com/golang/protobuf v1.3.1
+	github.com/golang/protobuf v1.3.2
 	github.com/golang/snappy v0.0.1
 	github.com/gomodule/redigo v0.0.0-20190205135352-43fe51054af5
 	github.com/google/go-github v17.0.0+incompatible // indirect
 	github.com/google/go-querystring v1.0.0 // indirect
 	github.com/google/gofuzz v0.0.0-20170612174753-24818f796faf // indirect
 	github.com/google/martian v2.1.0+incompatible // indirect
+	github.com/googleapis/gax-go v2.0.0+incompatible // indirect
 	github.com/gopherjs/gopherjs v0.0.0-20190309154008-847fc94819f9 // indirect
 	github.com/gorhill/cronexpr v0.0.0-20180427100037-88b0669f7d75 // indirect
 	github.com/gorilla/context v0.0.0-20160525203319-aed02d124ae4 // indirect
@@ -124,7 +126,6 @@ require (
 	github.com/miekg/dns v1.0.14
 	github.com/minio/blazer v0.0.0-20171126203752-2081f5bf0465
 	github.com/minio/cli v0.0.0-20170227073228-b8ae5507c0ce
-	github.com/minio/dsync v0.0.0-20190104003057-61c41ffdeea2
 	github.com/minio/highwayhash v0.0.0-20181220011308-93ed73d64169
 	github.com/minio/lsync v1.0.1
 	github.com/minio/mc v0.0.0-20190311071728-2e612b23d665
@@ -140,12 +141,15 @@ require (
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.1 // indirect
 	github.com/nats-io/gnatsd v1.4.1 // indirect
-	github.com/nats-io/go-nats v0.0.0-20161120202126-6b6bf392d34d // indirect
-	github.com/nats-io/go-nats-streaming v0.0.0-20161216191029-077898146bfb
-	github.com/nats-io/nats v0.0.0-20160916181735-70b70be17b77
-	github.com/nats-io/nats-streaming-server v0.12.2 // indirect
-	github.com/nats-io/nuid v1.0.0 // indirect
+	github.com/nats-io/go-nats v1.7.2 // indirect
+	github.com/nats-io/go-nats-streaming v0.4.4 // indirect
+	github.com/nats-io/nats-server v1.4.1 // indirect
+	github.com/nats-io/nats-server/v2 v2.1.2 // indirect
+	github.com/nats-io/nats-streaming-server v0.14.2 // indirect
+	github.com/nats-io/nats.go v1.9.1
+	github.com/nats-io/stan.go v0.4.5
 	github.com/nsqio/go-nsq v0.0.0-20181028195256-0527e80f3ba5
+	github.com/nullne/go-ycsb v0.0.0-20200313131447-3276baa50b35
 	github.com/onsi/ginkgo v1.8.0 // indirect
 	github.com/onsi/gomega v1.5.0 // indirect
 	github.com/opencontainers/go-digest v1.0.0-rc1 // indirect
@@ -175,11 +179,11 @@ require (
 	github.com/valyala/tcplisten v0.0.0-20161114210144-ceec8f93295a
 	go.uber.org/atomic v1.3.2
 	go.uber.org/multierr v1.1.0
-	golang.org/x/crypto v0.0.0-20190605123033-f99c8df09eb5
+	golang.org/x/crypto v0.0.0-20190701094942-4def268fd1a4
 	golang.org/x/net v0.0.0-20190603091049-60506f45cf65
-	golang.org/x/sys v0.0.0-20190606165138-5da285871e9c
+	golang.org/x/sys v0.0.0-20190726091711-fc99dfbffb4e
 	golang.org/x/time v0.0.0-20181108054448-85acf8d2951c
-	google.golang.org/api v0.0.0-20180916000451-19ff8768a5c0
+	google.golang.org/api v0.4.0
 	google.golang.org/appengine v1.6.1 // indirect
 	google.golang.org/genproto v0.0.0-20190611190212-a7e196e89fd3 // indirect
 	gopkg.in/Shopify/sarama.v1 v1.10.1
