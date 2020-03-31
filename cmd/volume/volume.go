@@ -147,8 +147,12 @@ func (v *Volume) ReadFileStream(key string, offset, length int64) (io.ReadCloser
 	if err != nil {
 		return nil, err
 	}
+	return v.readFileStream(info, offset, length)
+}
+
+func (v *Volume) readFileStream(info FileInfo, offset, length int64) (io.ReadCloser, error) {
 	if info.IsDir() {
-		return nil, fmt.Errorf("%s is a directory", key)
+		return nil, fmt.Errorf("%s is a directory", info.fileName)
 	}
 	file, err := v.files.getFileToRead(info.volumeID)
 	if err != nil {
@@ -297,8 +301,7 @@ func (s maintainItems) Swap(i, j int) {
 }
 
 func (s maintainItems) Less(i, j int) bool {
-	return s[i].offset < s[i].offset
-	// return s[i].key < s[i].key
+	return s[i].offset < s[j].offset
 }
 
 // will send status into ch if it is not nil, will be closed at the end
@@ -335,7 +338,7 @@ func (v *Volume) Maintain(ctx context.Context, rate float64, ch chan string) (er
 	v.changeMaintainStatus(maintainenceStatusCompacting)
 
 	for i, vid := range list {
-		pushMaintainStatus(ch, fmt.Sprintf("compacting: %d/%d", i, len(list)))
+		pushMaintainStatus(ch, fmt.Sprintf("compacting: %d/%d", i+1, len(list)))
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -414,12 +417,19 @@ func (v *Volume) maintainSingle(ctx context.Context, volumeID uint32, listFile s
 	}
 	sort.Sort(items)
 	for _, item := range items {
+		// fmt.Println(item.offset, item.size, item.key)
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
 		}
-		reader, err := v.ReadFileStream(item.key, 0, int64(item.size))
+		reader, err := v.readFileStream(FileInfo{
+			fileName: item.key,
+			volumeID: volumeID,
+			offset:   uint32(item.offset),
+			size:     uint32(item.size),
+			isDir:    false,
+		}, 0, int64(item.size))
 		if err != nil {
 			logger.Info("failed to read %s: %v", item.key, err)
 			return err

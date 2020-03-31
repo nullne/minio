@@ -331,7 +331,14 @@ func TestVolume_Maintain(t *testing.T) {
 		}
 	}()
 
-	if err := v.Maintain(ctx, 2, nil); err != nil {
+	logch := make(chan string, 5)
+	// go func() {
+	// 	for l := range logch {
+	// 		log.Println(l)
+	// 	}
+	// }()
+
+	if err := v.Maintain(ctx, 2, logch); err != nil {
 		t.Error(err)
 		return
 	}
